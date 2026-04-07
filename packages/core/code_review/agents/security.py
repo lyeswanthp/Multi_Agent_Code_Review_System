@@ -1,0 +1,88 @@
+"""Security Agent — triages SAST findings, separates real threats from false positives.
+
+Provider: Cerebras | Model: qwen3-32b
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+
+from code_review.llm_client import call_agent
+from code_review.models import AgentName, Finding, Severity
+from code_review.rules.loader import load_rules
+from code_review.state import ReviewState
+
+logger = logging.getLogger(__name__)
+
+FALLBACK_PROMPT = """\
+You are a security review agent. Triage SAST findings and hunt for missed vulnerabilities.
+Return ONLY a JSON array: [{"severity":"critical|high|medium|low","file":"...","line":0,"message":"...","suggestion":"..."}]
+"""
+
+JSON_OUTPUT_INSTRUCTION = """
+
+Output format — return a JSON array:
+[{"severity": "critical|high|medium|low", "file": "path/to/file.py", "line": 10, "message": "Description with triage reasoning", "suggestion": "Specific fix"}]
+Return ONLY the JSON array, no markdown fences, no extra text.
+"""
+
+
+def _get_system_prompt() -> str:
+    rules = load_rules()
+    rule = rules.get("security")
+    if rule and rule.body:
+        return rule.body + JSON_OUTPUT_INSTRUCTION
+    return FALLBACK_PROMPT
+
+
+async def run_security_agent(state: ReviewState) -> dict:
+    """Triage SAST findings and hunt for missed security issues."""
+    semgrep = state["semgrep_findings"]
+    bandit = state["bandit_findings"]
+    file_contents = state["file_contents"]
+
+    if not semgrep and not bandit and not file_contents:
+        logger.info("Security agent: no findings or files, skipping")
+        return {"findings": []}
+
+    context_parts = []
+
+    if semgrep or bandit:
+        context_parts.append(f"## SAST Findings\n### Semgrep\n{json.dumps(semgrep, indent=2)}\n### Bandit\n{json.dumps(bandit, indent=2)}\n")
+
+    for filepath, content in file_contents.items():
+        context_parts.append(f"## {filepath}\n```\n{content}\n```\n")
+
+    user_msg = "\n".join(context_parts)
+
+    response = await call_agent(
+        AgentName.SECURITY,
+        messages=[
+            {"role": "system", "content": _get_system_prompt()},
+            {"role": "user", "content": user_msg},
+        ],
+    )
+
+    if not response:
+        return {"findings": []}
+
+    try:
+        items = json.loads(response)
+    except json.JSONDecodeError:
+        logger.warning("Security agent returned non-JSON response")
+        return {"findings": []}
+
+    findings = []
+    for item in items:
+        findings.append(Finding(
+            severity=Severity(item.get("severity", "medium")),
+            file=item.get("file", ""),
+            line=item.get("line", 0),
+            message=item.get("message", ""),
+            agent=AgentName.SECURITY,
+            suggestion=item.get("suggestion", ""),
+            category="security",
+        ))
+
+    return {"findings": findings}
