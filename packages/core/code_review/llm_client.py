@@ -21,7 +21,8 @@ _clients: dict[str, AsyncOpenAI] = {}
 def get_client(base_url: str, api_key: str) -> AsyncOpenAI:
     """Get or create an AsyncOpenAI client for the given provider."""
     if base_url not in _clients:
-        _clients[base_url] = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=60.0)
+        timeout = 300.0 if "localhost" in base_url or "127.0.0.1" in base_url else 60.0
+        _clients[base_url] = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
     return _clients[base_url]
 
 

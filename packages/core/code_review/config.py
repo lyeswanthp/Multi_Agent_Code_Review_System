@@ -1,4 +1,11 @@
-"""Configuration via environment variables."""
+"""Configuration via environment variables.
+
+Supports two modes:
+  - "local" (default): All agents use Ollama at localhost. No API keys needed.
+  - "remote": Agents routed to Groq / NVIDIA NIM / Cerebras free tiers.
+
+Set LLM_MODE=local or LLM_MODE=remote in .env or environment.
+"""
 
 from __future__ import annotations
 
@@ -27,7 +34,15 @@ class Settings(BaseSettings):
         "extra": "ignore",
     }
 
-    # API keys
+    # Mode: "local" (Ollama) or "remote" (cloud APIs)
+    llm_mode: str = Field(default="local", alias="LLM_MODE")
+
+    # Ollama settings
+    ollama_base_url: str = Field(default="http://localhost:11434/v1", alias="OLLAMA_BASE_URL")
+    ollama_heavy_model: str = Field(default="qwen2.5-coder:14b", alias="OLLAMA_HEAVY_MODEL")
+    ollama_light_model: str = Field(default="llama3.1:8b", alias="OLLAMA_LIGHT_MODEL")
+
+    # Remote API keys (only needed in remote mode)
     nvidia_api_key: str = Field(default="", alias="NVIDIA_API_KEY")
     groq_api_key: str = Field(default="", alias="GROQ_API_KEY")
     cerebras_api_key: str = Field(default="", alias="CEREBRAS_API_KEY")
@@ -35,15 +50,31 @@ class Settings(BaseSettings):
     # Severity threshold — findings below this are filtered out
     severity_threshold: Severity = Severity.MEDIUM
 
-    # Agent model assignments
+    # Remote model assignments (used when LLM_MODE=remote)
     syntax_model: str = "llama-3.3-70b-versatile"
-    logic_model: str = "nvidia/nemotron-mini-4b-instruct"
+    logic_model: str = "mistralai/devstral-2-123b-instruct-2512"
     security_model: str = "llama3.1-8b"
     git_history_model: str = "llama-3.1-8b-instant"
     orchestrator_model: str = "nvidia/nemotron-mini-4b-instruct"
 
     def get_provider(self, agent: str) -> ProviderConfig:
         """Return the provider config for a given agent name."""
+        if self.llm_mode == "local":
+            return self._local_provider(agent)
+        return self._remote_provider(agent)
+
+    def _local_provider(self, agent: str) -> ProviderConfig:
+        """All agents route to local Ollama. Heavy model for reasoning, light for the rest."""
+        heavy_agents = {"logic", "security", "orchestrator"}
+        model = self.ollama_heavy_model if agent in heavy_agents else self.ollama_light_model
+        return ProviderConfig(
+            base_url=self.ollama_base_url,
+            api_key="ollama",  # Ollama ignores this but openai SDK requires non-empty
+            model=model,
+        )
+
+    def _remote_provider(self, agent: str) -> ProviderConfig:
+        """Route agents to cloud free-tier providers."""
         providers = {
             "syntax": ProviderConfig(
                 base_url="https://api.groq.com/openai/v1",
