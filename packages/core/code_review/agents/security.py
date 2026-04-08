@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 
-from code_review.llm_client import call_agent
+from code_review.llm_client import call_agent, extract_json, truncate_content
 from code_review.models import AgentName, Finding, Severity
 from code_review.rules.loader import load_rules
 from code_review.state import ReviewState
@@ -46,15 +46,20 @@ async def run_security_agent(state: ReviewState) -> dict:
         logger.info("Security agent: no findings or files, skipping")
         return {"findings": []}
 
+    n_files = len(file_contents)
+    per_file_budget = max(800, 4000 // (n_files + 1)) if n_files else 4000
+
     context_parts = []
 
     if semgrep or bandit:
-        context_parts.append(f"## SAST Findings\n### Semgrep\n{json.dumps(semgrep, indent=2)}\n### Bandit\n{json.dumps(bandit, indent=2)}\n")
+        sast_text = f"## SAST Findings\n### Semgrep\n{json.dumps(semgrep, indent=2)}\n### Bandit\n{json.dumps(bandit, indent=2)}\n"
+        context_parts.append(truncate_content(sast_text, 1000))
 
     for filepath, content in file_contents.items():
-        context_parts.append(f"## {filepath}\n```\n{content}\n```\n")
+        truncated = truncate_content(content, per_file_budget)
+        context_parts.append(f"## {filepath}\n```\n{truncated}\n```\n")
 
-    user_msg = "\n".join(context_parts)
+    user_msg = truncate_content("\n".join(context_parts))
 
     response = await call_agent(
         AgentName.SECURITY,
@@ -68,8 +73,8 @@ async def run_security_agent(state: ReviewState) -> dict:
         return {"findings": []}
 
     try:
-        items = json.loads(response)
-    except json.JSONDecodeError:
+        items = extract_json(response)
+    except (json.JSONDecodeError, ValueError):
         logger.warning("Security agent returned non-JSON response")
         return {"findings": []}
 

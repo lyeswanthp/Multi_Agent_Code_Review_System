@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 
-from code_review.llm_client import call_agent
+from code_review.llm_client import call_agent, extract_json, truncate_content
 from code_review.models import AgentName, Finding, Severity
 from code_review.rules.loader import load_rules
 from code_review.state import ReviewState
@@ -44,7 +44,7 @@ async def run_syntax_agent(state: ReviewState) -> dict:
         logger.info("Syntax agent: no linter findings, skipping")
         return {"findings": []}
 
-    user_msg = f"Linter findings to analyze:\n{json.dumps(linter_findings, indent=2)}"
+    user_msg = truncate_content(f"Linter findings to analyze:\n{json.dumps(linter_findings, indent=2)}")
 
     response = await call_agent(
         AgentName.SYNTAX,
@@ -58,8 +58,8 @@ async def run_syntax_agent(state: ReviewState) -> dict:
         return {"findings": []}
 
     try:
-        items = json.loads(response)
-    except json.JSONDecodeError:
+        items = extract_json(response)
+    except (json.JSONDecodeError, ValueError):
         logger.warning("Syntax agent returned non-JSON response")
         return {"findings": []}
 

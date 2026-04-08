@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 
-from code_review.llm_client import call_agent
+from code_review.llm_client import call_agent, extract_json, truncate_content
 from code_review.models import AgentName, Finding, Severity
 from code_review.rules.loader import load_rules
 from code_review.state import ReviewState
@@ -46,15 +46,21 @@ async def run_logic_agent(state: ReviewState) -> dict:
         logger.info("Logic agent: no diff or files, skipping")
         return {"findings": []}
 
-    # Build context: diff + full file contents + import relationships
-    context_parts = [f"## Diff\n```\n{raw_diff}\n```\n"]
+    # Build context: diff + file contents (each file truncated to fit context window)
+    # Per-file budget: split the total character budget across all files + diff
+    n_files = len(file_contents)
+    per_file_budget = max(800, 5000 // (n_files + 1)) if n_files else 5000
+    diff_budget = min(1000, per_file_budget)
+
+    context_parts = [f"## Diff\n```\n{raw_diff[:diff_budget]}\n```\n"]
 
     for filepath, content in file_contents.items():
         imports = import_context.get(filepath, [])
         import_note = f" (imports: {', '.join(imports)})" if imports else ""
-        context_parts.append(f"## {filepath}{import_note}\n```\n{content}\n```\n")
+        truncated = truncate_content(content, per_file_budget)
+        context_parts.append(f"## {filepath}{import_note}\n```\n{truncated}\n```\n")
 
-    user_msg = "\n".join(context_parts)
+    user_msg = truncate_content("\n".join(context_parts))
 
     response = await call_agent(
         AgentName.LOGIC,
@@ -68,8 +74,8 @@ async def run_logic_agent(state: ReviewState) -> dict:
         return {"findings": []}
 
     try:
-        items = json.loads(response)
-    except json.JSONDecodeError:
+        items = extract_json(response)
+    except (json.JSONDecodeError, ValueError):
         logger.warning("Logic agent returned non-JSON response")
         return {"findings": []}
 

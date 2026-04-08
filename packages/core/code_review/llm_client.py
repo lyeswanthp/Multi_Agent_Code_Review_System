@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from openai import AsyncOpenAI
@@ -16,6 +18,40 @@ logger = logging.getLogger(__name__)
 
 # Cache clients per base_url to reuse connections
 _clients: dict[str, AsyncOpenAI] = {}
+
+# Conservative character budget for the user message (~3 chars per token, leaving
+# room for the system prompt and completion within a 4096-token context window).
+_USER_MSG_CHAR_BUDGET = 6000
+
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
+
+
+def extract_json(text: str) -> list:
+    """Extract a JSON array from an LLM response, stripping markdown fences if present.
+
+    Returns a list (possibly empty) or raises json.JSONDecodeError on invalid JSON.
+    """
+    # Try fenced block first
+    match = _JSON_FENCE_RE.search(text)
+    candidate = match.group(1).strip() if match else text.strip()
+
+    # Find the first '[' and last ']' to isolate the array
+    start = candidate.find("[")
+    end = candidate.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        candidate = candidate[start : end + 1]
+
+    return json.loads(candidate)
+
+
+def truncate_content(content: str, max_chars: int = _USER_MSG_CHAR_BUDGET) -> str:
+    """Truncate a string to max_chars, appending a notice when cut."""
+    if len(content) <= max_chars:
+        return content
+    cutoff = content[:max_chars].rfind("\n")  # break on a line boundary
+    cutoff = cutoff if cutoff > max_chars // 2 else max_chars
+    return content[:cutoff] + f"\n... [truncated — {len(content) - cutoff} chars omitted]"
 
 
 def get_client(base_url: str, api_key: str) -> AsyncOpenAI:

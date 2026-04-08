@@ -1,7 +1,7 @@
 """Configuration via environment variables.
 
 Supports two modes:
-  - "local" (default): All agents use Ollama at localhost. No API keys needed.
+  - "local" (default): All agents use LM Studio at localhost. No API keys needed.
   - "remote": Agents routed to Groq / NVIDIA NIM / Cerebras free tiers.
 
 Set LLM_MODE=local or LLM_MODE=remote in .env or environment.
@@ -34,13 +34,13 @@ class Settings(BaseSettings):
         "extra": "ignore",
     }
 
-    # Mode: "local" (Ollama) or "remote" (cloud APIs)
+    # Mode: "local" (LM Studio) or "remote" (cloud APIs)
     llm_mode: str = Field(default="local", alias="LLM_MODE")
 
-    # Ollama settings
-    ollama_base_url: str = Field(default="http://localhost:11434/v1", alias="OLLAMA_BASE_URL")
-    ollama_heavy_model: str = Field(default="qwen2.5-coder:14b", alias="OLLAMA_HEAVY_MODEL")
-    ollama_light_model: str = Field(default="llama3.1:8b", alias="OLLAMA_LIGHT_MODEL")
+    # LM Studio settings (local mode) — LM Studio serves an OpenAI-compatible API on port 1234
+    lmstudio_base_url: str = Field(default="http://localhost:1234/v1", alias="LMSTUDIO_BASE_URL")
+    lmstudio_heavy_model: str = Field(default="local-model", alias="LMSTUDIO_HEAVY_MODEL")
+    lmstudio_light_model: str = Field(default="local-model", alias="LMSTUDIO_LIGHT_MODEL")
 
     # Remote API keys (only needed in remote mode)
     nvidia_api_key: str = Field(default="", alias="NVIDIA_API_KEY")
@@ -64,12 +64,12 @@ class Settings(BaseSettings):
         return self._remote_provider(agent)
 
     def _local_provider(self, agent: str) -> ProviderConfig:
-        """All agents route to local Ollama. Heavy model for reasoning, light for the rest."""
+        """All agents route to local LM Studio. Heavy model for reasoning, light for the rest."""
         heavy_agents = {"logic", "security", "orchestrator"}
-        model = self.ollama_heavy_model if agent in heavy_agents else self.ollama_light_model
+        model = self.lmstudio_heavy_model if agent in heavy_agents else self.lmstudio_light_model
         return ProviderConfig(
-            base_url=self.ollama_base_url,
-            api_key="ollama",  # Ollama ignores this but openai SDK requires non-empty
+            base_url=self.lmstudio_base_url,
+            api_key="lm-studio",  # LM Studio ignores this but openai SDK requires non-empty
             model=model,
         )
 
