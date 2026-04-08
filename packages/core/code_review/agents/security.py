@@ -20,19 +20,12 @@ You are a security review agent. Triage SAST findings and hunt for missed vulner
 Return ONLY a JSON array: [{"severity":"critical|high|medium|low","file":"...","line":0,"message":"...","suggestion":"..."}]
 """
 
-JSON_OUTPUT_INSTRUCTION = """
-
-Output format — return a JSON array:
-[{"severity": "critical|high|medium|low", "file": "path/to/file.py", "line": 10, "message": "Description with triage reasoning", "suggestion": "Specific fix"}]
-Return ONLY the JSON array, no markdown fences, no extra text.
-"""
-
 
 def _get_system_prompt() -> str:
     rules = load_rules()
     rule = rules.get("security")
     if rule and rule.body:
-        return rule.body + JSON_OUTPUT_INSTRUCTION
+        return rule.body
     return FALLBACK_PROMPT
 
 
@@ -47,13 +40,13 @@ async def run_security_agent(state: ReviewState) -> dict:
         return {"findings": []}
 
     n_files = len(file_contents)
-    per_file_budget = max(800, 4000 // (n_files + 1)) if n_files else 4000
+    per_file_budget = max(2000, 16_000 // (n_files + 1)) if n_files else 16_000
 
     context_parts = []
 
     if semgrep or bandit:
         sast_text = f"## SAST Findings\n### Semgrep\n{json.dumps(semgrep, indent=2)}\n### Bandit\n{json.dumps(bandit, indent=2)}\n"
-        context_parts.append(truncate_content(sast_text, 1000))
+        context_parts.append(truncate_content(sast_text, 4000))
 
     for filepath, content in file_contents.items():
         truncated = truncate_content(content, per_file_budget)

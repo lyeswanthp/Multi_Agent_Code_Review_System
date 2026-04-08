@@ -19,28 +19,45 @@ logger = logging.getLogger(__name__)
 # Cache clients per base_url to reuse connections
 _clients: dict[str, AsyncOpenAI] = {}
 
-# Conservative character budget for the user message (~3 chars per token, leaving
-# room for the system prompt and completion within a 4096-token context window).
-_USER_MSG_CHAR_BUDGET = 6000
+# Character budget for user messages. ~3 chars per token; sized for 8K–32K
+# context windows common in local models (LM Studio, Ollama) and cloud APIs.
+_USER_MSG_CHAR_BUDGET = 24_000
 
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
 
 
-def extract_json(text: str) -> list:
-    """Extract a JSON array from an LLM response, stripping markdown fences if present.
+def extract_json(text: str) -> list | dict:
+    """Extract a JSON array or object from an LLM response.
 
-    Returns a list (possibly empty) or raises json.JSONDecodeError on invalid JSON.
+    Handles markdown fences, leading/trailing prose, and mixed output.
+    Returns a list or dict, or raises json.JSONDecodeError / ValueError.
     """
     # Try fenced block first
     match = _JSON_FENCE_RE.search(text)
     candidate = match.group(1).strip() if match else text.strip()
 
-    # Find the first '[' and last ']' to isolate the array
-    start = candidate.find("[")
-    end = candidate.rfind("]")
-    if start != -1 and end != -1 and end > start:
-        candidate = candidate[start : end + 1]
+    # Try to find an array
+    arr_start = candidate.find("[")
+    arr_end = candidate.rfind("]")
+
+    # Try to find an object
+    obj_start = candidate.find("{")
+    obj_end = candidate.rfind("}")
+
+    has_array = arr_start != -1 and arr_end != -1 and arr_end > arr_start
+    has_object = obj_start != -1 and obj_end != -1 and obj_end > obj_start
+
+    # Pick whichever structure appears first in the text
+    if has_array and has_object:
+        if arr_start < obj_start:
+            candidate = candidate[arr_start : arr_end + 1]
+        else:
+            candidate = candidate[obj_start : obj_end + 1]
+    elif has_array:
+        candidate = candidate[arr_start : arr_end + 1]
+    elif has_object:
+        candidate = candidate[obj_start : obj_end + 1]
 
     return json.loads(candidate)
 

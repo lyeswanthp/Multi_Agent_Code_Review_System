@@ -20,19 +20,12 @@ You are a logic review agent. Analyze code for bugs, edge cases, and logic error
 Return ONLY a JSON array: [{"severity":"critical|high|medium|low","file":"...","line":0,"message":"...","suggestion":"..."}]
 """
 
-JSON_OUTPUT_INSTRUCTION = """
-
-Output format — return a JSON array:
-[{"severity": "critical|high|medium|low", "file": "path/to/file.py", "line": 10, "message": "Description with reasoning", "suggestion": "Specific fix with code"}]
-Return ONLY the JSON array, no markdown fences, no extra text.
-"""
-
 
 def _get_system_prompt() -> str:
     rules = load_rules()
     rule = rules.get("logic")
     if rule and rule.body:
-        return rule.body + JSON_OUTPUT_INSTRUCTION
+        return rule.body
     return FALLBACK_PROMPT
 
 
@@ -47,10 +40,9 @@ async def run_logic_agent(state: ReviewState) -> dict:
         return {"findings": []}
 
     # Build context: diff + file contents (each file truncated to fit context window)
-    # Per-file budget: split the total character budget across all files + diff
     n_files = len(file_contents)
-    per_file_budget = max(800, 5000 // (n_files + 1)) if n_files else 5000
-    diff_budget = min(1000, per_file_budget)
+    per_file_budget = max(2000, 16_000 // (n_files + 1)) if n_files else 16_000
+    diff_budget = min(4000, per_file_budget)
 
     context_parts = [f"## Diff\n```\n{raw_diff[:diff_budget]}\n```\n"]
 

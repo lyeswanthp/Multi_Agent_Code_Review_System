@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 
-from code_review.llm_client import call_agent
+from code_review.llm_client import call_agent, extract_json
 from code_review.models import AgentName, Finding, Severity
 from code_review.rules.loader import load_rules
 from code_review.state import ReviewState
@@ -21,19 +21,12 @@ Return ONLY a JSON array: [{"severity":"high|medium|low","file":"...","line":0,"
 If no issues, return: []
 """
 
-JSON_OUTPUT_INSTRUCTION = """
-
-Output format — return a JSON array:
-[{"severity": "high|medium|low", "file": "path/to/file.py", "line": 0, "message": "Cross-commit pattern", "suggestion": "What to investigate"}]
-Return ONLY the JSON array, no markdown fences, no extra text. If no issues, return: []
-"""
-
 
 def _get_system_prompt() -> str:
     rules = load_rules()
     rule = rules.get("git_history")
     if rule and rule.body:
-        return rule.body + JSON_OUTPUT_INSTRUCTION
+        return rule.body
     return FALLBACK_PROMPT
 
 
@@ -65,8 +58,8 @@ async def run_git_history_agent(state: ReviewState) -> dict:
         return {"findings": []}
 
     try:
-        items = json.loads(response)
-    except json.JSONDecodeError:
+        items = extract_json(response)
+    except (json.JSONDecodeError, ValueError):
         logger.warning("Git history agent returned non-JSON response")
         return {"findings": []}
 

@@ -17,7 +17,7 @@ class TestParseRuleFile:
 
     def test_parses_body(self):
         rule = parse_rule_file(RULES_DIR / "logic.md")
-        assert "Semi-Formal Reasoning" in rule.body
+        assert "Reasoning Template" in rule.body
 
     def test_git_history_trigger(self):
         rule = parse_rule_file(RULES_DIR / "git_history.md")
@@ -27,8 +27,8 @@ class TestParseRuleFile:
 class TestLoadRules:
     def test_loads_all_defaults(self):
         rules = load_rules(RULES_DIR)
-        assert len(rules) == 4
-        assert set(rules.keys()) == {"syntax", "logic", "security", "git_history"}
+        assert len(rules) == 5
+        assert set(rules.keys()) == {"syntax", "logic", "security", "git_history", "orchestrator"}
 
     def test_glob_matching(self):
         rules = load_rules(RULES_DIR)

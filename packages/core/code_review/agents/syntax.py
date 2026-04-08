@@ -20,19 +20,12 @@ You are a syntax and style review agent. Analyze linter output and produce prior
 Return ONLY a JSON array: [{"severity":"high|medium|low","file":"...","line":0,"message":"...","suggestion":"..."}]
 """
 
-JSON_OUTPUT_INSTRUCTION = """
-
-Output format — return a JSON array of objects:
-[{"severity": "high|medium|low", "file": "path/to/file.py", "line": 10, "message": "Human-readable description", "suggestion": "How to fix it"}]
-Return ONLY the JSON array, no markdown fences, no extra text.
-"""
-
 
 def _get_system_prompt() -> str:
     rules = load_rules()
     rule = rules.get("syntax")
     if rule and rule.body:
-        return rule.body + JSON_OUTPUT_INSTRUCTION
+        return rule.body
     return FALLBACK_PROMPT
 
 
