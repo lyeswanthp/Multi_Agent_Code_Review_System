@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 
+from code_review.cache import get_cached, set_cached
 from code_review.llm_client import call_agent, extract_json, truncate_content
 from code_review.models import AgentName, Finding, Severity
 from code_review.rules.loader import load_rules
@@ -39,6 +40,24 @@ async def run_syntax_agent(state: ReviewState) -> dict:
 
     user_msg = truncate_content(f"Linter findings to analyze:\n{json.dumps(linter_findings, indent=2)}")
 
+    # Check cache
+    cached = get_cached("syntax", user_msg)
+    if cached is not None:
+        items = cached
+        findings = []
+        for item in items:
+            findings.append(Finding(
+                severity=Severity(item.get("severity", "medium")),
+                file=item.get("file", ""),
+                line=item.get("line", 0),
+                message=item.get("message", ""),
+                agent=AgentName.SYNTAX,
+                suggestion=item.get("suggestion", ""),
+                category="style",
+            ))
+        has_critical = any(f.severity in (Severity.CRITICAL, Severity.HIGH) for f in findings)
+        return {"findings": findings, "syntax_has_critical": has_critical}
+
     response = await call_agent(
         AgentName.SYNTAX,
         messages=[
@@ -68,4 +87,6 @@ async def run_syntax_agent(state: ReviewState) -> dict:
             category="style",
         ))
 
-    return {"findings": findings}
+    set_cached("syntax", user_msg, items)
+    has_critical = any(f.severity in (Severity.CRITICAL, Severity.HIGH) for f in findings)
+    return {"findings": findings, "syntax_has_critical": has_critical}

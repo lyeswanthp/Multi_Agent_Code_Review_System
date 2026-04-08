@@ -38,5 +38,9 @@ class ReviewState(TypedDict):
     # Agent findings — reducer merges parallel results via list concatenation
     findings: Annotated[list[Finding], operator.add]
 
+    # Agent control flags (written by pre-filter, read by graph routing)
+    agents_to_run: list[str]  # e.g. ["syntax", "logic", "security", "git_history"]
+    syntax_has_critical: bool  # True if syntax found critical/high issues
+
     # Final summary (written by orchestrator)
     summary: str

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 
+from code_review.cache import get_cached, set_cached
 from code_review.llm_client import call_agent, extract_json, truncate_content
 from code_review.models import AgentName, Finding, Severity
 from code_review.rules.loader import load_rules
@@ -58,6 +59,22 @@ async def run_logic_agent(state: ReviewState) -> dict:
 
     user_msg = truncate_content("\n".join(context_parts))
 
+    # Check cache
+    cached = get_cached("logic", user_msg)
+    if cached is not None:
+        findings = []
+        for item in cached:
+            findings.append(Finding(
+                severity=Severity(item.get("severity", "medium")),
+                file=item.get("file", ""),
+                line=item.get("line", 0),
+                message=item.get("message", ""),
+                agent=AgentName.LOGIC,
+                suggestion=item.get("suggestion", ""),
+                category="logic",
+            ))
+        return {"findings": findings}
+
     response = await call_agent(
         AgentName.LOGIC,
         messages=[
@@ -87,4 +104,5 @@ async def run_logic_agent(state: ReviewState) -> dict:
             category="logic",
         ))
 
+    set_cached("logic", user_msg, items)
     return {"findings": findings}

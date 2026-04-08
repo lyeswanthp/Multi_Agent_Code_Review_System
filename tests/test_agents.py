@@ -29,6 +29,8 @@ def _make_state(**overrides):
         "overlap_diffs": {},
         "findings": [],
         "summary": "",
+        "agents_to_run": [],
+        "syntax_has_critical": False,
     }
     base.update(overrides)
     return base
@@ -51,6 +53,7 @@ class TestSyntaxAgent:
 
         assert len(result["findings"]) == 1
         assert result["findings"][0].agent == AgentName.SYNTAX
+        assert result["syntax_has_critical"] is True  # high severity triggers this
 
     @pytest.mark.asyncio
     async def test_skips_when_no_findings(self):
@@ -156,6 +159,69 @@ class TestGitHistoryAgent:
 
         assert len(result["findings"]) == 1
         assert result["findings"][0].agent == AgentName.GIT_HISTORY
+
+
+class TestPrefilter:
+    def test_all_agents_when_full_data(self):
+        from code_review.agents.prefilter import run_prefilter
+        state = _make_state(
+            linter_findings=[{"code": "W001"}],
+            raw_diff="some diff",
+            file_contents={"app.py": "code"},
+            changed_files=["app.py"],
+            semgrep_findings=[{"id": "test"}],
+            overlap_files=["app.py"],
+        )
+        result = run_prefilter(state)
+        assert set(result["agents_to_run"]) == {"syntax", "logic", "security", "git_history"}
+
+    def test_no_agents_when_empty(self):
+        from code_review.agents.prefilter import run_prefilter
+        state = _make_state()
+        result = run_prefilter(state)
+        assert result["agents_to_run"] == []
+
+    def test_skips_security_for_non_code(self):
+        from code_review.agents.prefilter import run_prefilter
+        state = _make_state(
+            changed_files=["README.md"],
+            linter_findings=[{"code": "W001"}],
+            raw_diff="diff",
+        )
+        result = run_prefilter(state)
+        assert "security" not in result["agents_to_run"]
+        assert "syntax" in result["agents_to_run"]
+
+    def test_skips_git_history_without_overlap(self):
+        from code_review.agents.prefilter import run_prefilter
+        state = _make_state(
+            linter_findings=[{"code": "W001"}],
+            raw_diff="diff",
+            changed_files=["app.py"],
+        )
+        result = run_prefilter(state)
+        assert "git_history" not in result["agents_to_run"]
+
+
+class TestCache:
+    def test_cache_hit_and_miss(self):
+        from code_review.cache import clear_cache, get_cached, set_cached
+        clear_cache()
+        assert get_cached("syntax", "content") is None
+        set_cached("syntax", "content", [{"severity": "high"}])
+        assert get_cached("syntax", "content") == [{"severity": "high"}]
+
+    def test_different_content_misses(self):
+        from code_review.cache import clear_cache, get_cached, set_cached
+        clear_cache()
+        set_cached("syntax", "content_a", [{"severity": "high"}])
+        assert get_cached("syntax", "content_b") is None
+
+    def test_clear_cache(self):
+        from code_review.cache import clear_cache, get_cached, set_cached
+        set_cached("syntax", "content", [{"severity": "high"}])
+        clear_cache()
+        assert get_cached("syntax", "content") is None
 
 
 class TestExtractJson:
