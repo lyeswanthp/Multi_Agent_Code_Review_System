@@ -14,6 +14,7 @@ def _make_state():
         "changed_files": ["test.py"],
         "overlap_files": [],
         "file_contents": {"test.py": "print('new')"},
+        "focused_contents": {"test.py": "print('new')"},
         "import_context": {},
         "linter_findings": [{"code": "W001", "file": "test.py", "line": 1}],
         "semgrep_findings": [],

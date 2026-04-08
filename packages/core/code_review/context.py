@@ -9,6 +9,7 @@ from pathlib import Path
 
 from git import Repo
 
+from code_review.ast_extractor import extract_focused_context
 from code_review.models import ToolResults
 from code_review.state import ReviewState
 from code_review.tools.git_diff import get_overlap_diffs
@@ -114,21 +115,40 @@ def assemble_context(
 
     logger.info("Context assembled: %d files read (no duplicates)", len(file_contents))
 
-    # Step 4: Get overlap diffs for git history agent
+    # Step 4: Build focused context — AST-extracted relevant blocks only
+    raw_diff = tool_results.raw_diff
+    focused_contents: dict[str, str] = {}
+    for filepath, content in file_contents.items():
+        focused = extract_focused_context(filepath, content, raw_diff)
+        focused_contents[filepath] = focused
+        if len(focused) < len(content):
+            saved_pct = round((1 - len(focused) / len(content)) * 100)
+            logger.debug("AST focus: %s reduced by %d%%", filepath, saved_pct)
+
+    total_full = sum(len(c) for c in file_contents.values())
+    total_focused = sum(len(c) for c in focused_contents.values())
+    if total_full > 0:
+        logger.info(
+            "AST focus: %d chars → %d chars (%d%% reduction)",
+            total_full, total_focused, round((1 - total_focused / total_full) * 100),
+        )
+
+    # Step 6: Get overlap diffs for git history agent
     overlap_diffs: dict[str, str] = {}
     if repo and commit_sha and overlap_files:
         overlap_diffs = get_overlap_diffs(repo, commit_sha, set(overlap_files))
 
-    # Step 5: Serialize linter findings for agents
+    # Step 7: Serialize linter findings for agents
     linter_findings = [f.model_dump() for f in tool_results.ruff_findings + tool_results.eslint_findings]
     semgrep_findings = [f.model_dump() for f in tool_results.semgrep_findings]
     bandit_findings = [f.model_dump() for f in tool_results.bandit_findings]
 
     return ReviewState(
-        raw_diff=tool_results.raw_diff,
+        raw_diff=raw_diff,
         changed_files=changed_files,
         overlap_files=overlap_files,
         file_contents=file_contents,
+        focused_contents=focused_contents,
         import_context=import_context,
         linter_findings=linter_findings,
         semgrep_findings=semgrep_findings,

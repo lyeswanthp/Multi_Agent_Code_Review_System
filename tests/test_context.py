@@ -53,4 +53,11 @@ class TestAssembleContext:
         tool_results = ToolResults()
         state = assemble_context(str(tmp_path), tool_results)
         assert state["file_contents"] == {}
+        assert state["focused_contents"] == {}
         assert state["findings"] == []
+
+    def test_focused_contents_populated(self, tmp_path):
+        (tmp_path / "app.py").write_text("def foo():\n    return 1\n\ndef bar():\n    return 2\n")
+        tool_results = ToolResults(changed_files={"app.py"})
+        state = assemble_context(str(tmp_path), tool_results)
+        assert "app.py" in state["focused_contents"]

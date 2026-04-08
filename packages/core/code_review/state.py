@@ -22,6 +22,7 @@ class ReviewState(TypedDict):
     changed_files: list[str]
     overlap_files: list[str]
     file_contents: dict[str, str]
+    focused_contents: dict[str, str]  # AST-extracted relevant blocks only
     import_context: dict[str, list[str]]
 
     # Linter output (written by Tier 1, read by Syntax/Security agents)

@@ -32,21 +32,25 @@ def _get_system_prompt() -> str:
 async def run_logic_agent(state: ReviewState) -> dict:
     """Analyze code diff and files for logic errors and edge cases."""
     raw_diff = state["raw_diff"]
+    focused_contents = state["focused_contents"]
     file_contents = state["file_contents"]
     import_context = state["import_context"]
 
-    if not raw_diff and not file_contents:
+    # Prefer focused (AST-extracted) content; fall back to full files
+    contents = focused_contents if focused_contents else file_contents
+
+    if not raw_diff and not contents:
         logger.info("Logic agent: no diff or files, skipping")
         return {"findings": []}
 
     # Build context: diff + file contents (each file truncated to fit context window)
-    n_files = len(file_contents)
+    n_files = len(contents)
     per_file_budget = max(2000, 16_000 // (n_files + 1)) if n_files else 16_000
     diff_budget = min(4000, per_file_budget)
 
     context_parts = [f"## Diff\n```\n{raw_diff[:diff_budget]}\n```\n"]
 
-    for filepath, content in file_contents.items():
+    for filepath, content in contents.items():
         imports = import_context.get(filepath, [])
         import_note = f" (imports: {', '.join(imports)})" if imports else ""
         truncated = truncate_content(content, per_file_budget)

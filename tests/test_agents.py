@@ -21,6 +21,7 @@ def _make_state(**overrides):
         "changed_files": [],
         "overlap_files": [],
         "file_contents": {},
+        "focused_contents": {},
         "import_context": {},
         "linter_findings": [],
         "semgrep_findings": [],

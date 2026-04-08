@@ -33,13 +33,17 @@ async def run_security_agent(state: ReviewState) -> dict:
     """Triage SAST findings and hunt for missed security issues."""
     semgrep = state["semgrep_findings"]
     bandit = state["bandit_findings"]
+    focused_contents = state["focused_contents"]
     file_contents = state["file_contents"]
 
-    if not semgrep and not bandit and not file_contents:
+    # Prefer focused (AST-extracted) content; fall back to full files
+    contents = focused_contents if focused_contents else file_contents
+
+    if not semgrep and not bandit and not contents:
         logger.info("Security agent: no findings or files, skipping")
         return {"findings": []}
 
-    n_files = len(file_contents)
+    n_files = len(contents)
     per_file_budget = max(2000, 16_000 // (n_files + 1)) if n_files else 16_000
 
     context_parts = []
@@ -48,7 +52,7 @@ async def run_security_agent(state: ReviewState) -> dict:
         sast_text = f"## SAST Findings\n### Semgrep\n{json.dumps(semgrep, indent=2)}\n### Bandit\n{json.dumps(bandit, indent=2)}\n"
         context_parts.append(truncate_content(sast_text, 4000))
 
-    for filepath, content in file_contents.items():
+    for filepath, content in contents.items():
         truncated = truncate_content(content, per_file_budget)
         context_parts.append(f"## {filepath}\n```\n{truncated}\n```\n")
 
