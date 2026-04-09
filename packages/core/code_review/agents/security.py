@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 FALLBACK_PROMPT = """\
 You are a security review agent. Triage SAST findings and hunt for missed vulnerabilities.
+You will receive a security-focused knowledge graph context showing entry points (uncalled
+functions), data flow chains, and external dependencies. Use this to identify taint
+propagation paths and attack surfaces.
 Return ONLY a JSON array: [{"severity":"critical|high|medium|low","file":"...","line":0,"message":"...","suggestion":"..."}]
 """
 
@@ -28,6 +31,44 @@ def _get_system_prompt() -> str:
     if rule and rule.body:
         return rule.body
     return FALLBACK_PROMPT
+
+
+def _build_security_graph_text(state: ReviewState) -> str:
+    """Build a compact security-focused text summary from the knowledge graph."""
+    graph_ctx = state.get("graph_context", {})
+    if not graph_ctx or not graph_ctx.get("nodes"):
+        return ""
+
+    parts = ["## Security Graph Context\n"]
+
+    # Entry points — functions not called by others
+    called_targets: set[str] = set()
+    for e in graph_ctx.get("edges", []):
+        if e.get("relation") == "calls":
+            called_targets.add(e["target"])
+
+    functions = [n for n in graph_ctx.get("nodes", [])
+                 if n.get("type") in ("function", "method")]
+    entry_points = [f for f in functions if f["id"] not in called_targets]
+    if entry_points:
+        labels = [f"{ep.get('label', ep['id'])} ({ep.get('file', '')})" for ep in entry_points[:10]]
+        parts.append(f"**Entry points (uncalled):** {', '.join(labels)}\n")
+
+    # Call chains (potential taint propagation)
+    call_edges = [e for e in graph_ctx.get("edges", []) if e.get("relation") == "calls"]
+    if call_edges:
+        parts.append("**Data flow:**")
+        for e in call_edges[:20]:
+            parts.append(f"  {e['source']} → {e['target']}")
+
+    # External deps
+    import_edges = [e for e in graph_ctx.get("edges", []) if e.get("relation") == "imports"]
+    if import_edges:
+        parts.append("\n**External dependencies:**")
+        for e in import_edges[:15]:
+            parts.append(f"  imports {e['target']}")
+
+    return "\n".join(parts) if len(parts) > 1 else ""
 
 
 async def run_security_agent(state: ReviewState) -> dict:
@@ -52,6 +93,11 @@ async def run_security_agent(state: ReviewState) -> dict:
     if semgrep or bandit:
         sast_text = f"## SAST Findings\n### Semgrep\n{json.dumps(semgrep, indent=2)}\n### Bandit\n{json.dumps(bandit, indent=2)}\n"
         context_parts.append(truncate_content(sast_text, 4000))
+
+    # Inject security-focused graph context
+    sec_graph_text = _build_security_graph_text(state)
+    if sec_graph_text:
+        context_parts.append(sec_graph_text + "\n")
 
     for filepath, content in contents.items():
         truncated = truncate_content(content, per_file_budget)

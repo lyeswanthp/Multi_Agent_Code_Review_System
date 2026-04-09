@@ -194,3 +194,28 @@ class TestAssembleContext:
         tool_results = ToolResults(changed_files={"c.py", "a.py", "b.py"})
         state = assemble_context(str(tmp_path), tool_results)
         assert state["changed_files"] == ["a.py", "b.py", "c.py"]
+
+    def test_graph_context_populated(self, tmp_path):
+        """Knowledge graph context should be populated for Python files."""
+        (tmp_path / "app.py").write_text("def hello():\n    return 'world'\n")
+        tool_results = ToolResults(changed_files={"app.py"})
+        state = assemble_context(str(tmp_path), tool_results)
+        assert "graph_context" in state
+        assert isinstance(state["graph_context"], dict)
+        assert "nodes" in state["graph_context"]
+        assert len(state["graph_context"]["nodes"]) > 0
+
+    def test_graph_context_empty_for_empty_results(self, tmp_path):
+        tool_results = ToolResults()
+        state = assemble_context(str(tmp_path), tool_results)
+        assert state["graph_context"]["nodes"] == []
+        assert state["graph_context"]["edges"] == []
+
+    def test_graph_context_contains_functions(self, tmp_path):
+        (tmp_path / "logic.py").write_text("def process():\n    return compute()\ndef compute():\n    return 42\n")
+        tool_results = ToolResults(changed_files={"logic.py"})
+        state = assemble_context(str(tmp_path), tool_results)
+        node_labels = {n.get("label") for n in state["graph_context"]["nodes"]}
+        assert "process()" in node_labels
+        assert "compute()" in node_labels
+

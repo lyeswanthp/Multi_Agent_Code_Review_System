@@ -1,4 +1,9 @@
-"""Tier 2: Context assembly — reads files ONCE, builds shared ReviewState."""
+"""Tier 2: Context assembly — reads files ONCE, builds shared ReviewState.
+
+Now integrates a knowledge graph (AST-driven, via tree-sitter + NetworkX)
+alongside the existing focused-context extraction. The graph provides
+topology-aware subgraphs to agents instead of naive regex imports.
+"""
 
 from __future__ import annotations
 
@@ -10,13 +15,18 @@ from pathlib import Path
 from git import Repo
 
 from code_review.ast_extractor import extract_focused_context
+from code_review.knowledge_graph import (
+    build_knowledge_graph,
+    get_affected_subgraph,
+    get_graph_stats,
+)
 from code_review.models import ToolResults
 from code_review.state import ReviewState
 from code_review.tools.git_diff import get_overlap_diffs
 
 logger = logging.getLogger(__name__)
 
-# Import patterns (1-level deep, regex-based)
+# Import patterns (1-level deep, regex-based) — kept as fallback
 PY_IMPORT_RE = re.compile(
     r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.MULTILINE
 )
@@ -79,6 +89,7 @@ def assemble_context(
     """Build the shared ReviewState by reading each file exactly once.
 
     This is the ONLY place files are read. Agents never read files directly.
+    Now also builds a knowledge graph and attaches graph context to the state.
     """
     repo_root = path
     changed_files = sorted(tool_results.changed_files)
@@ -133,6 +144,21 @@ def assemble_context(
             total_full, total_focused, round((1 - total_focused / total_full) * 100),
         )
 
+    # Step 5: Build knowledge graph from all file contents
+    graph_context: dict = {"nodes": [], "edges": []}
+    if file_contents:
+        try:
+            kg = build_knowledge_graph(file_contents)
+            graph_context = get_affected_subgraph(kg, changed_files, max_hops=2)
+            stats = get_graph_stats(kg)
+            logger.info(
+                "Knowledge graph: %d nodes, %d edges (%s)",
+                stats["total_nodes"], stats["total_edges"],
+                ", ".join(f"{k}: {v}" for k, v in stats["node_types"].items()),
+            )
+        except Exception as e:
+            logger.warning("Knowledge graph build failed (non-fatal): %s", e)
+
     # Step 6: Get overlap diffs for git history agent
     overlap_diffs: dict[str, str] = {}
     if repo and commit_sha and overlap_files:
@@ -150,6 +176,7 @@ def assemble_context(
         file_contents=file_contents,
         focused_contents=focused_contents,
         import_context=import_context,
+        graph_context=graph_context,
         linter_findings=linter_findings,
         semgrep_findings=semgrep_findings,
         bandit_findings=bandit_findings,

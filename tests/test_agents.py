@@ -25,6 +25,7 @@ def _make_state(**overrides):
         "file_contents": {},
         "focused_contents": {},
         "import_context": {},
+        "graph_context": {"nodes": [], "edges": []},
         "linter_findings": [],
         "semgrep_findings": [],
         "bandit_findings": [],

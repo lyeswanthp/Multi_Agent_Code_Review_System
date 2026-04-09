@@ -29,6 +29,7 @@ def _make_state(**overrides):
         "file_contents": {"test.py": "print('new')"},
         "focused_contents": {"test.py": "print('new')"},
         "import_context": {},
+        "graph_context": {"nodes": [], "edges": []},
         "linter_findings": [{"code": "W001", "file": "test.py", "line": 1}],
         "semgrep_findings": [],
         "bandit_findings": [],

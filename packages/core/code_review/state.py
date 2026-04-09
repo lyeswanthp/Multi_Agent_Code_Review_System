@@ -25,6 +25,9 @@ class ReviewState(TypedDict):
     focused_contents: dict[str, str]  # AST-extracted relevant blocks only
     import_context: dict[str, list[str]]
 
+    # Knowledge graph context (written by Tier 2, read by Logic/Security agents)
+    graph_context: dict  # compact subgraph dict {nodes, edges} from knowledge_graph.py
+
     # Linter output (written by Tier 1, read by Syntax/Security agents)
     linter_findings: list[dict]
 

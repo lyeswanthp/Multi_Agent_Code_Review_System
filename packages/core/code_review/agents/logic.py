@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 FALLBACK_PROMPT = """\
 You are a logic review agent. Analyze code for bugs, edge cases, and logic errors.
+You will receive both the raw code AND a knowledge graph context showing call chains,
+dependencies, inheritance, and developer intent (rationale comments). Use the graph
+to understand execution flow and trace bugs across function boundaries.
 Return ONLY a JSON array: [{"severity":"critical|high|medium|low","file":"...","line":0,"message":"...","suggestion":"..."}]
 """
 
@@ -28,6 +31,43 @@ def _get_system_prompt() -> str:
     if rule and rule.body:
         return rule.body
     return FALLBACK_PROMPT
+
+
+def _build_graph_context_text(state: ReviewState) -> str:
+    """Build a compact text summary from the knowledge graph for logic analysis."""
+    graph_ctx = state.get("graph_context", {})
+    if not graph_ctx or not graph_ctx.get("nodes"):
+        return ""
+
+    parts = ["## Knowledge Graph Context\n"]
+
+    # Group by relation type
+    call_edges = [e for e in graph_ctx.get("edges", []) if e.get("relation") == "calls"]
+    import_edges = [e for e in graph_ctx.get("edges", []) if e.get("relation") == "imports"]
+    inherit_edges = [e for e in graph_ctx.get("edges", []) if e.get("relation") == "inherits"]
+    rationale_nodes = [n for n in graph_ctx.get("nodes", []) if n.get("type") == "rationale"]
+
+    if call_edges:
+        parts.append("**Call graph:**")
+        for e in call_edges[:20]:
+            parts.append(f"  {e['source']} → {e['target']}")
+
+    if import_edges:
+        parts.append("\n**Dependencies:**")
+        for e in import_edges[:15]:
+            parts.append(f"  {e['source']} imports {e['target']}")
+
+    if inherit_edges:
+        parts.append("\n**Inheritance:**")
+        for e in inherit_edges[:10]:
+            parts.append(f"  {e['source']} extends {e['target']}")
+
+    if rationale_nodes:
+        parts.append("\n**Developer intent:**")
+        for r in rationale_nodes[:10]:
+            parts.append(f"  {r.get('file', '')}:L{r.get('line', 0)} — {r.get('label', '')}")
+
+    return "\n".join(parts) if len(parts) > 1 else ""
 
 
 async def run_logic_agent(state: ReviewState) -> dict:
@@ -50,6 +90,11 @@ async def run_logic_agent(state: ReviewState) -> dict:
     diff_budget = min(4000, per_file_budget)
 
     context_parts = [f"## Diff\n```\n{raw_diff[:diff_budget]}\n```\n"]
+
+    # Inject knowledge graph context (compact, topology-aware)
+    graph_text = _build_graph_context_text(state)
+    if graph_text:
+        context_parts.append(graph_text + "\n")
 
     for filepath, content in contents.items():
         imports = import_context.get(filepath, [])
