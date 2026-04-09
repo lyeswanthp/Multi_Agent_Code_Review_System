@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     lmstudio_base_url: str = Field(default="http://localhost:1234/v1", alias="LMSTUDIO_BASE_URL")
     lmstudio_heavy_model: str = Field(default="local-model", alias="LMSTUDIO_HEAVY_MODEL")
     lmstudio_light_model: str = Field(default="local-model", alias="LMSTUDIO_LIGHT_MODEL")
+    # Context window size of the loaded model (in tokens). Used to size prompt budgets.
+    lmstudio_context_size: int = Field(default=4096, alias="LMSTUDIO_CONTEXT_SIZE")
 
     # Remote API keys (only needed in remote mode)
     nvidia_api_key: str = Field(default="", alias="NVIDIA_API_KEY")

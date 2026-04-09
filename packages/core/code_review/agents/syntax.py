@@ -9,7 +9,7 @@ import json
 import logging
 
 from code_review.cache import get_cached, set_cached
-from code_review.llm_client import call_agent, extract_json, truncate_content
+from code_review.llm_client import call_agent, extract_json, truncate_content, truncate_system_prompt
 from code_review.models import AgentName, Finding, Severity
 from code_review.rules.loader import load_rules
 from code_review.state import ReviewState
@@ -25,9 +25,8 @@ Return ONLY a JSON array: [{"severity":"high|medium|low","file":"...","line":0,"
 def _get_system_prompt() -> str:
     rules = load_rules()
     rule = rules.get("syntax")
-    if rule and rule.body:
-        return rule.body
-    return FALLBACK_PROMPT
+    prompt = rule.body if (rule and rule.body) else FALLBACK_PROMPT
+    return truncate_system_prompt(prompt)
 
 
 async def run_syntax_agent(state: ReviewState) -> dict:

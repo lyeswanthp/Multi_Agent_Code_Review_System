@@ -19,9 +19,17 @@ logger = logging.getLogger(__name__)
 # Cache clients per base_url to reuse connections
 _clients: dict[str, AsyncOpenAI] = {}
 
-# Character budget for user messages. ~3 chars per token; sized for 8K–32K
-# context windows common in local models (LM Studio, Ollama) and cloud APIs.
-_USER_MSG_CHAR_BUDGET = 24_000
+# Read context window size from config (set LMSTUDIO_CONTEXT_SIZE in .env).
+# Default 4096 for safety with small local models; cloud APIs can handle 32K+.
+# Budget = context_chars * 0.55 for user msg, * 0.25 for system prompt,
+# leaving ~20% for completion tokens.
+def _get_budgets() -> tuple[int, int]:
+    ctx_tokens = settings.lmstudio_context_size if settings.llm_mode == "local" else 32_000
+    ctx_chars = ctx_tokens * 3  # ~3 chars per token (conservative)
+    return int(ctx_chars * 0.55), int(ctx_chars * 0.25)  # user_budget, sys_budget
+
+
+_USER_MSG_CHAR_BUDGET, _SYS_PROMPT_CHAR_BUDGET = _get_budgets()
 
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
@@ -69,6 +77,11 @@ def truncate_content(content: str, max_chars: int = _USER_MSG_CHAR_BUDGET) -> st
     cutoff = content[:max_chars].rfind("\n")  # break on a line boundary
     cutoff = cutoff if cutoff > max_chars // 2 else max_chars
     return content[:cutoff] + f"\n... [truncated — {len(content) - cutoff} chars omitted]"
+
+
+def truncate_system_prompt(prompt: str) -> str:
+    """Trim system prompt to fit within the configured context window budget."""
+    return truncate_content(prompt, _SYS_PROMPT_CHAR_BUDGET)
 
 
 def get_client(base_url: str, api_key: str) -> AsyncOpenAI:
