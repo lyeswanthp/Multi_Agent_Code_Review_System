@@ -35,6 +35,9 @@ class ReviewState(TypedDict):
     semgrep_findings: list[dict]
     bandit_findings: list[dict]
 
+    # Per-file old/new code extracted from diff (written by Tier 2)
+    diff_context: dict[str, dict[str, str]]  # {file: {"old": ..., "new": ..., "diff": ...}}
+
     # Git history diffs for overlap files (written by Tier 1)
     overlap_diffs: dict[str, str]
 
