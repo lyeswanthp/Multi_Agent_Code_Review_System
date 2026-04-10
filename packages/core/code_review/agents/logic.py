@@ -1,152 +1,61 @@
-"""Logic Agent — deep code reasoning with semi-formal analysis.
-
-Provider: NVIDIA NIM | Model: mistralai/devstral-2-123b-instruct-2512
-"""
+"""Logic Agent — finds bugs per file using diff hunks."""
 
 from __future__ import annotations
 
-import json
 import logging
 
-from code_review.cache import get_cached, set_cached
-from code_review.llm_client import call_agent, extract_json, truncate_content, truncate_system_prompt
-from code_review.models import AgentName, Finding, Severity
+from code_review.agents.per_file import run_per_file
+from code_review.events import agent_telemetry, bus
+from code_review.models import AgentName
 from code_review.rules.loader import load_rules
 from code_review.state import ReviewState
 
 logger = logging.getLogger(__name__)
 
 FALLBACK_PROMPT = """\
-You are a logic review agent. Analyze code for bugs, edge cases, and logic errors.
-You will receive both the raw code AND a knowledge graph context showing call chains,
-dependencies, inheritance, and developer intent (rationale comments). Use the graph
-to understand execution flow and trace bugs across function boundaries.
-Return ONLY a JSON array: [{"severity":"critical|high|medium|low","file":"...","line":0,"message":"...","suggestion":"..."}]
+Find bugs in this code. You will see a DIFF section showing what changed (- = old, + = new) followed by the current code with >>> markers on changed lines.
+Compare old vs new logic carefully. Check: regressions, off-by-one, null/None, wrong conditions, dead code, exception handling.
+Return ONLY JSON: [{"severity":"critical|high|medium|low","file":"path","line":10,"message":"bug","suggestion":"fix"}]
+Empty if clean: []
 """
 
 
 def _get_system_prompt() -> str:
     rules = load_rules()
     rule = rules.get("logic")
-    prompt = rule.body if (rule and rule.body) else FALLBACK_PROMPT
-    return truncate_system_prompt(prompt)
+    return rule.body if (rule and rule.body) else FALLBACK_PROMPT
 
 
-def _build_graph_context_text(state: ReviewState) -> str:
-    """Build a compact text summary from the knowledge graph for logic analysis."""
-    graph_ctx = state.get("graph_context", {})
-    if not graph_ctx or not graph_ctx.get("nodes"):
-        return ""
-
-    parts = ["## Knowledge Graph Context\n"]
-
-    # Group by relation type
-    call_edges = [e for e in graph_ctx.get("edges", []) if e.get("relation") == "calls"]
-    import_edges = [e for e in graph_ctx.get("edges", []) if e.get("relation") == "imports"]
-    inherit_edges = [e for e in graph_ctx.get("edges", []) if e.get("relation") == "inherits"]
-    rationale_nodes = [n for n in graph_ctx.get("nodes", []) if n.get("type") == "rationale"]
-
-    if call_edges:
-        parts.append("**Call graph:**")
-        for e in call_edges[:20]:
-            parts.append(f"  {e['source']} → {e['target']}")
-
-    if import_edges:
-        parts.append("\n**Dependencies:**")
-        for e in import_edges[:15]:
-            parts.append(f"  {e['source']} imports {e['target']}")
-
-    if inherit_edges:
-        parts.append("\n**Inheritance:**")
-        for e in inherit_edges[:10]:
-            parts.append(f"  {e['source']} extends {e['target']}")
-
-    if rationale_nodes:
-        parts.append("\n**Developer intent:**")
-        for r in rationale_nodes[:10]:
-            parts.append(f"  {r.get('file', '')}:L{r.get('line', 0)} — {r.get('label', '')}")
-
-    return "\n".join(parts) if len(parts) > 1 else ""
-
-
+@agent_telemetry("logic")
 async def run_logic_agent(state: ReviewState) -> dict:
-    """Analyze code diff and files for logic errors and edge cases."""
-    raw_diff = state["raw_diff"]
+    """Analyze each file individually for logic errors."""
     focused_contents = state["focused_contents"]
     file_contents = state["file_contents"]
-    import_context = state["import_context"]
 
-    # Prefer focused (AST-extracted) content; fall back to full files
+    diff_context = state.get("diff_context", {})
     contents = focused_contents if focused_contents else file_contents
-
-    if not raw_diff and not contents:
-        logger.info("Logic agent: no diff or files, skipping")
+    if not contents:
         return {"findings": []}
 
-    # Build context: diff + file contents (each file truncated to fit context window)
-    n_files = len(contents)
-    per_file_budget = max(2000, 16_000 // (n_files + 1)) if n_files else 16_000
-    diff_budget = min(4000, per_file_budget)
-
-    context_parts = [f"## Diff\n```\n{raw_diff[:diff_budget]}\n```\n"]
-
-    # Inject knowledge graph context (compact, topology-aware)
-    graph_text = _build_graph_context_text(state)
-    if graph_text:
-        context_parts.append(graph_text + "\n")
-
+    # Prepend unified diff to each file so the model sees old vs new
+    files_with_diff: dict[str, str] = {}
     for filepath, content in contents.items():
-        imports = import_context.get(filepath, [])
-        import_note = f" (imports: {', '.join(imports)})" if imports else ""
-        truncated = truncate_content(content, per_file_budget)
-        context_parts.append(f"## {filepath}{import_note}\n```\n{truncated}\n```\n")
+        dc = diff_context.get(filepath)
+        if dc and dc.get("diff"):
+            prefix = f"## Changes (old → new):\n```diff\n{dc['diff']}\n```\n\n## Current code:\n"
+            files_with_diff[filepath] = prefix + content
+        else:
+            files_with_diff[filepath] = content
 
-    user_msg = truncate_content("\n".join(context_parts))
+    bus.emit("agent.files", agent="logic", files=sorted(files_with_diff.keys()),
+             chars={f: len(c) for f, c in files_with_diff.items()})
 
-    # Check cache
-    cached = get_cached("logic", user_msg)
-    if cached is not None:
-        findings = []
-        for item in cached:
-            findings.append(Finding(
-                severity=Severity(item.get("severity", "medium")),
-                file=item.get("file", ""),
-                line=item.get("line", 0),
-                message=item.get("message", ""),
-                agent=AgentName.LOGIC,
-                suggestion=item.get("suggestion", ""),
-                category="logic",
-            ))
-        return {"findings": findings}
-
-    response = await call_agent(
-        AgentName.LOGIC,
-        messages=[
-            {"role": "system", "content": _get_system_prompt()},
-            {"role": "user", "content": user_msg},
-        ],
+    all_findings = await run_per_file(
+        agent_name="logic",
+        agent_enum=AgentName.LOGIC,
+        system_prompt=_get_system_prompt(),
+        files=files_with_diff,
+        category="logic",
     )
 
-    if not response:
-        return {"findings": []}
-
-    try:
-        items = extract_json(response)
-    except (json.JSONDecodeError, ValueError):
-        logger.warning("Logic agent returned non-JSON response")
-        return {"findings": []}
-
-    findings = []
-    for item in items:
-        findings.append(Finding(
-            severity=Severity(item.get("severity", "medium")),
-            file=item.get("file", ""),
-            line=item.get("line", 0),
-            message=item.get("message", ""),
-            agent=AgentName.LOGIC,
-            suggestion=item.get("suggestion", ""),
-            category="logic",
-        ))
-
-    set_cached("logic", user_msg, items)
-    return {"findings": findings}
+    return {"findings": all_findings}

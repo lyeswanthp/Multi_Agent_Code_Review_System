@@ -1,91 +1,60 @@
-"""Syntax Agent — interprets linter output into human-readable findings.
-
-Provider: Groq | Model: llama-3.3-70b-versatile
-"""
+"""Syntax Agent — interprets linter output per file."""
 
 from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 
-from code_review.cache import get_cached, set_cached
-from code_review.llm_client import call_agent, extract_json, truncate_content, truncate_system_prompt
-from code_review.models import AgentName, Finding, Severity
+from code_review.agents.per_file import run_per_file
+from code_review.events import agent_telemetry, bus
+from code_review.models import AgentName, Severity
 from code_review.rules.loader import load_rules
 from code_review.state import ReviewState
 
 logger = logging.getLogger(__name__)
 
 FALLBACK_PROMPT = """\
-You are a syntax and style review agent. Analyze linter output and produce prioritized findings.
-Return ONLY a JSON array: [{"severity":"high|medium|low","file":"...","line":0,"message":"...","suggestion":"..."}]
+Analyze these linter findings for one file. Return ONLY JSON:
+[{"severity":"high|medium|low","file":"path","line":0,"message":"issue","suggestion":"fix"}]
 """
 
 
 def _get_system_prompt() -> str:
     rules = load_rules()
     rule = rules.get("syntax")
-    prompt = rule.body if (rule and rule.body) else FALLBACK_PROMPT
-    return truncate_system_prompt(prompt)
+    return rule.body if (rule and rule.body) else FALLBACK_PROMPT
 
 
+@agent_telemetry("syntax")
 async def run_syntax_agent(state: ReviewState) -> dict:
-    """Analyze linter findings and return human-readable interpretations."""
+    """Analyze linter findings per file."""
     linter_findings = state["linter_findings"]
 
     if not linter_findings:
-        logger.info("Syntax agent: no linter findings, skipping")
         return {"findings": []}
 
-    user_msg = truncate_content(f"Linter findings to analyze:\n{json.dumps(linter_findings, indent=2)}")
+    # Group linter findings by file
+    by_file: dict[str, list[dict]] = defaultdict(list)
+    for f in linter_findings:
+        filepath = f.get("file", f.get("filename", "unknown"))
+        by_file[filepath].append(f)
 
-    # Check cache
-    cached = get_cached("syntax", user_msg)
-    if cached is not None:
-        items = cached
-        findings = []
-        for item in items:
-            findings.append(Finding(
-                severity=Severity(item.get("severity", "medium")),
-                file=item.get("file", ""),
-                line=item.get("line", 0),
-                message=item.get("message", ""),
-                agent=AgentName.SYNTAX,
-                suggestion=item.get("suggestion", ""),
-                category="style",
-            ))
-        has_critical = any(f.severity in (Severity.CRITICAL, Severity.HIGH) for f in findings)
-        return {"findings": findings, "syntax_has_critical": has_critical}
+    bus.emit("agent.files", agent="syntax",
+             files=sorted(by_file.keys()), count=len(linter_findings))
 
-    response = await call_agent(
-        AgentName.SYNTAX,
-        messages=[
-            {"role": "system", "content": _get_system_prompt()},
-            {"role": "user", "content": user_msg},
-        ],
+    # Build per-file content: just the linter findings for that file
+    file_contents = {}
+    for filepath, findings in by_file.items():
+        file_contents[filepath] = json.dumps(findings, indent=2, default=str)
+
+    all_findings = await run_per_file(
+        agent_name="syntax",
+        agent_enum=AgentName.SYNTAX,
+        system_prompt=_get_system_prompt(),
+        files=file_contents,
+        category="style",
     )
 
-    if not response:
-        return {"findings": []}
-
-    try:
-        items = extract_json(response)
-    except (json.JSONDecodeError, ValueError):
-        logger.warning("Syntax agent returned non-JSON response")
-        return {"findings": []}
-
-    findings = []
-    for item in items:
-        findings.append(Finding(
-            severity=Severity(item.get("severity", "medium")),
-            file=item.get("file", ""),
-            line=item.get("line", 0),
-            message=item.get("message", ""),
-            agent=AgentName.SYNTAX,
-            suggestion=item.get("suggestion", ""),
-            category="style",
-        ))
-
-    set_cached("syntax", user_msg, items)
-    has_critical = any(f.severity in (Severity.CRITICAL, Severity.HIGH) for f in findings)
-    return {"findings": findings, "syntax_has_critical": has_critical}
+    has_critical = any(f.severity == Severity.CRITICAL for f in all_findings)
+    return {"findings": all_findings, "syntax_has_critical": has_critical}
