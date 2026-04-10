@@ -149,7 +149,10 @@ def build_sequential_graph():
 
 
 def build_review_graph():
-    """Pick topology based on LLM_MODE."""
+    """Pick topology based on LLM_MODE.
+    Local: sequential (single GPU can't serve parallel well).
+    Remote: parallel (separate API endpoints).
+    """
     if settings.llm_mode == "local":
         return build_sequential_graph()
     return build_parallel_graph()

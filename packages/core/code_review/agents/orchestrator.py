@@ -37,15 +37,31 @@ def _get_system_prompt() -> str:
     return FALLBACK_PROMPT
 
 
+def _deterministic_summary(findings: list[Finding]) -> str:
+    """Build a plain-text summary without an LLM call."""
+    from collections import Counter
+    counts = Counter(f.severity.value for f in findings)
+    files = len({f.file for f in findings})
+    agents = sorted({f.agent.value for f in findings})
+    parts = [f"{counts.get(s, 0)} {s}" for s in ("critical", "high", "medium", "low") if counts.get(s)]
+    return (
+        f"Found {len(findings)} issue(s) across {files} file(s): {', '.join(parts)}. "
+        f"Agents that contributed: {', '.join(agents)}."
+    )
+
+
 async def run_orchestrator(state: ReviewState) -> dict:
     """Synthesize all agent findings into a final review."""
+    from code_review.config import settings
     findings = state["findings"]
 
     if not findings:
-        return {
-            "findings": [],
-            "summary": "No issues found. Code looks clean.",
-        }
+        return {"findings": [], "summary": "No issues found. Code looks clean."}
+
+    # Local mode: skip the LLM call — local models can't reliably produce the
+    # nested JSON this prompt requires, causing findings to be silently dropped.
+    if settings.llm_mode == "local":
+        return {"summary": _deterministic_summary(findings)}
 
     serialized = [f.model_dump() if hasattr(f, "model_dump") else f for f in findings]
     user_msg = f"Agent findings to synthesize:\n{json.dumps(serialized, indent=2, default=str)}"
@@ -59,32 +75,42 @@ async def run_orchestrator(state: ReviewState) -> dict:
     )
 
     if not response:
-        return {"summary": "Orchestrator unavailable. Raw findings returned as-is."}
+        return {"summary": _deterministic_summary(findings)}
 
     try:
         result = extract_json(response)
     except (json.JSONDecodeError, ValueError):
         logger.warning("Orchestrator returned non-JSON response")
-        return {"summary": "Orchestrator produced unstructured output. Raw findings returned."}
+        return {"summary": _deterministic_summary(findings)}
 
     if not isinstance(result, dict):
         logger.warning("Orchestrator returned a JSON array instead of object")
-        return {"summary": "Orchestrator produced unstructured output. Raw findings returned."}
+        return {"summary": _deterministic_summary(findings)}
 
-    # Parse orchestrator findings
+    # Build a lookup from the raw findings to restore original agent labels
+    _raw: dict[tuple, AgentName] = {}
+    for raw_f in findings:
+        key = (raw_f.file, raw_f.line, raw_f.category)
+        _raw[key] = raw_f.agent
+
+    # Parse orchestrator findings — preserve original agent attribution where possible
     orchestrated_findings = []
     for item in result.get("findings", []):
+        category = item.get("category", "")
+        line = item.get("line", 0)
+        file_ = item.get("file", "")
+        original_agent = _raw.get((file_, line, category), AgentName.ORCHESTRATOR)
         orchestrated_findings.append(Finding(
             severity=Severity(item.get("severity", "medium")),
-            file=item.get("file", ""),
-            line=item.get("line", 0),
+            file=file_,
+            line=line,
             message=item.get("message", ""),
-            agent=AgentName.ORCHESTRATOR,
+            agent=original_agent,
             suggestion=item.get("suggestion", ""),
-            category=item.get("category", ""),
+            category=category,
         ))
 
-    output = {"summary": result.get("summary", "")}
+    output = {"summary": result.get("summary", _deterministic_summary(findings))}
     if orchestrated_findings:
         output["findings"] = orchestrated_findings
     return output
