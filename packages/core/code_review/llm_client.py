@@ -32,17 +32,21 @@ def _get_budgets() -> tuple[int, int]:
 _USER_MSG_CHAR_BUDGET, _SYS_PROMPT_CHAR_BUDGET = _get_budgets()
 
 
-_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
+_JSON_FENCE_CLOSED = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
+_JSON_FENCE_OPEN = re.compile(r"```(?:json)?\s*([\s\S]*)", re.IGNORECASE)
 
 
 def extract_json(text: str) -> list | dict:
     """Extract a JSON array or object from an LLM response.
 
-    Handles markdown fences, leading/trailing prose, and mixed output.
+    Handles markdown fences (open or closed), leading/trailing prose, mixed output,
+    and truncated arrays (salvages complete objects from cut-off responses).
     Returns a list or dict, or raises json.JSONDecodeError / ValueError.
     """
-    # Try fenced block first
-    match = _JSON_FENCE_RE.search(text)
+    # Try closed fence first, then open fence (model truncated without closing ```)
+    match = _JSON_FENCE_CLOSED.search(text)
+    if not match:
+        match = _JSON_FENCE_OPEN.search(text)
     candidate = match.group(1).strip() if match else text.strip()
 
     # Try to find an array
@@ -67,7 +71,26 @@ def extract_json(text: str) -> list | dict:
     elif has_object:
         candidate = candidate[obj_start : obj_end + 1]
 
-    return json.loads(candidate)
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        pass
+
+    # Truncated array recovery: progressively close the array to salvage items
+    if arr_start is not None and arr_start != -1:
+        raw = candidate if candidate.startswith("[") else text[text.find("["):]
+        # Try closing at each "}, {" boundary from the end
+        parts = raw.split("},")
+        for i in range(len(parts), 0, -1):
+            attempt = "},".join(parts[:i]) + "}]"
+            try:
+                result = json.loads(attempt)
+                if isinstance(result, list):
+                    return result
+            except json.JSONDecodeError:
+                continue
+
+    raise json.JSONDecodeError("No valid JSON found", text, 0)
 
 
 def truncate_content(content: str, max_chars: int = _USER_MSG_CHAR_BUDGET) -> str:
@@ -87,21 +110,28 @@ def truncate_system_prompt(prompt: str) -> str:
 def get_client(base_url: str, api_key: str) -> AsyncOpenAI:
     """Get or create an AsyncOpenAI client for the given provider."""
     if base_url not in _clients:
-        timeout = 300.0 if "localhost" in base_url or "127.0.0.1" in base_url else 60.0
+        timeout = 900.0 if "localhost" in base_url or "127.0.0.1" in base_url else 60.0
         _clients[base_url] = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
     return _clients[base_url]
+
+
+_call_counter = 0
 
 
 async def call_agent(
     agent: AgentName | str,
     messages: list[dict[str, str]],
     temperature: float = 0.1,
+    max_tokens: int | None = None,
 ) -> str:
     """Call the LLM for a specific agent using its configured provider.
 
     On transient failure (rate limit, timeout): logs warning, returns empty string.
     On auth failure: raises immediately (config bug, not transient).
     """
+    global _call_counter
+    from code_review.events import bus
+
     agent_name = agent.value if hasattr(agent, "value") else agent
     provider = settings.get_provider(agent_name)
 
@@ -113,16 +143,53 @@ async def call_agent(
 
     client = get_client(provider.base_url, provider.api_key)
 
+    # Compute prompt size for telemetry
+    prompt_chars = sum(len(m.get("content", "")) for m in messages)
+    _call_counter += 1
+    call_id = f"{agent_name}_{_call_counter}"
+
+    bus.emit("llm.request",
+        id=call_id, agent=agent_name, model=provider.model,
+        prompt_chars=prompt_chars, base_url=provider.base_url,
+    )
+
     try:
-        response = await client.chat.completions.create(
+        is_local = "localhost" in provider.base_url or "127.0.0.1" in provider.base_url
+
+        # Disable thinking mode for Qwen3+ models on local — they waste tokens
+        # on <think> tags and return empty answers within the token budget.
+        extra: dict = {}
+        if is_local and "qwen" in provider.model.lower():
+            extra["extra_body"] = {
+                "chat_template_kwargs": {"enable_thinking": False}
+            }
+
+        create_kwargs: dict = dict(
             model=provider.model,
             messages=messages,
             temperature=temperature,
+            **extra,
         )
-        return response.choices[0].message.content or ""
+        if max_tokens is not None:
+            create_kwargs["max_tokens"] = max_tokens
+
+        response = await client.chat.completions.create(**create_kwargs)
+        content = response.choices[0].message.content or ""
+
+        bus.emit("llm.response",
+            id=call_id, agent=agent_name,
+            response_chars=len(content),
+        )
+        return content
 
     except Exception as e:
         err_str = str(e).lower()
+
+        bus.emit("llm.error",
+            id=call_id, agent=agent_name,
+            error=str(e)[:200],
+        )
+
         if "auth" in err_str or "401" in err_str or "invalid api key" in err_str:
             logger.error("Auth failed for agent '%s' — check API key for %s", agent_name, provider.base_url)
             raise
