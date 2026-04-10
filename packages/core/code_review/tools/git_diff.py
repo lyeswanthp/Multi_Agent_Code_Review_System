@@ -47,6 +47,49 @@ def get_diff(repo: Repo, commit_sha: str) -> str:
     return repo.git.diff(str(commit.parents[0]), commit_sha)
 
 
+def get_uncommitted_files(repo: Repo) -> set[str]:
+    """Get files with uncommitted changes: staged + modified + untracked."""
+    paths: set[str] = set()
+
+    # Modified (unstaged)
+    for d in repo.index.diff(None):
+        if d.a_path:
+            paths.add(d.a_path)
+        if d.b_path:
+            paths.add(d.b_path)
+
+    # Staged
+    for d in repo.index.diff("HEAD"):
+        if d.a_path:
+            paths.add(d.a_path)
+        if d.b_path:
+            paths.add(d.b_path)
+
+    # Untracked
+    paths.update(repo.untracked_files)
+
+    # Only keep source files
+    _src_exts = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".rb", ".php"}
+    paths = {p for p in paths if any(p.endswith(ext) for ext in _src_exts)}
+
+    logger.info("Uncommitted changes: %d files", len(paths))
+    return paths
+
+
+def get_uncommitted_diff(repo: Repo) -> str:
+    """Get unified diff of all uncommitted changes (staged + unstaged)."""
+    parts = []
+    # Staged diff
+    staged = repo.git.diff("--cached")
+    if staged:
+        parts.append(staged)
+    # Unstaged diff
+    unstaged = repo.git.diff()
+    if unstaged:
+        parts.append(unstaged)
+    return "\n".join(parts)
+
+
 def get_overlap_diffs(repo: Repo, current_sha: str, overlap_files: set[str]) -> dict[str, str]:
     """Get per-file diffs between previous and current commit for overlap files only."""
     commit = repo.commit(current_sha)
