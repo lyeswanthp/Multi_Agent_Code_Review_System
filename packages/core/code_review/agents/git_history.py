@@ -9,6 +9,7 @@ import json
 import logging
 
 from code_review.cache import get_cached, set_cached
+from code_review.events import agent_telemetry
 from code_review.llm_client import call_agent, extract_json
 from code_review.models import AgentName, Finding, Severity
 from code_review.rules.loader import load_rules
@@ -31,6 +32,7 @@ def _get_system_prompt() -> str:
     return FALLBACK_PROMPT
 
 
+@agent_telemetry("git_history")
 async def run_git_history_agent(state: ReviewState) -> dict:
     """Analyze overlapping files between current and previous commit."""
     overlap_files = state["overlap_files"]
@@ -79,6 +81,9 @@ async def run_git_history_agent(state: ReviewState) -> dict:
     except (json.JSONDecodeError, ValueError):
         logger.warning("Git history agent returned non-JSON response")
         return {"findings": []}
+
+    if not isinstance(items, list):
+        items = [items] if isinstance(items, dict) else []
 
     findings = []
     for item in items:

@@ -38,9 +38,12 @@ def run_prefilter(state: ReviewState) -> dict:
     if state.get("overlap_files"):
         agents.append("git_history")
 
+    from code_review.events import bus
+
     if not agents:
         logger.info("Pre-filter: no agents needed, skipping to orchestrator")
     else:
         logger.info("Pre-filter: agents to run: %s", agents)
 
+    bus.emit("agent.set", agents=agents)
     return {"agents_to_run": agents, "syntax_has_critical": False}
