@@ -56,9 +56,23 @@ def parse_rule_file(path: Path) -> Rule:
     )
 
 
+_rules_cache: dict[str, Rule] | None = None
+_rules_cache_dir: Path | None = None
+
+
 def load_rules(rules_dir: Path | None = None) -> dict[str, Rule]:
-    """Load all rule files from the given directory. Returns {agent_name: Rule}."""
+    """Load all rule files from the given directory. Returns {agent_name: Rule}.
+
+    Results are cached per rules directory — repeated calls within a process
+    return the same dict without re-reading disk.
+    """
+    global _rules_cache, _rules_cache_dir
     directory = rules_dir or RULES_DIR
+
+    # Return cached result if the same directory was already loaded.
+    if _rules_cache is not None and _rules_cache_dir == directory:
+        return _rules_cache
+
     rules: dict[str, Rule] = {}
 
     if not directory.is_dir():
@@ -70,4 +84,6 @@ def load_rules(rules_dir: Path | None = None) -> dict[str, Rule]:
         rules[rule.agent] = rule
         logger.debug("Loaded rule: %s (agent=%s)", rule.name, rule.agent)
 
+    _rules_cache = rules
+    _rules_cache_dir = directory
     return rules
