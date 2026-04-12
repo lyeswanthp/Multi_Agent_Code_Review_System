@@ -42,7 +42,7 @@ dev = [
 code-review = "cli.main:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["packages/core/code_review", "cli"]
+packages = ["packages/code_review", "cli"]
 
 [tool.ruff]
 line-length = 100

@@ -11,8 +11,8 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# rules/loader.py → /packages/core/rules/loader.py
-#   parents[0] = rules/    parents[1] = core/    parents[2] = packages/
+# rules/loader.py → /packages/code_review/rules/loader.py
+#   parents[0] = rules/       parents[1] = code_review/  parents[2] = packages/
 #   parents[3] = project root
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 RULES_DIR = _PROJECT_ROOT / "rules" / "default"
