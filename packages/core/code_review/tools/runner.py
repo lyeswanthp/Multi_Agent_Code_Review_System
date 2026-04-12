@@ -176,12 +176,20 @@ async def run_all_tools(
     )
 
 
+# Cap concurrent subprocess calls — avoids overwhelming the system on large repos.
+_SEMAPHORE = asyncio.Semaphore(8)
+
+
 async def _run_on_files(tool_fn, file_paths: list[str]) -> list[Finding]:
     """Run a tool on multiple individual files and merge results."""
-    tasks = [asyncio.create_task(tool_fn(fp)) for fp in file_paths]
-    if not tasks:
+    if not file_paths:
         return []
-    results = await asyncio.gather(*tasks)
+
+    async def _run_one(fp: str) -> list[Finding]:
+        async with _SEMAPHORE:
+            return await tool_fn(fp)
+
+    results = await asyncio.gather(*[_run_one(fp) for fp in file_paths])
     merged: list[Finding] = []
     for r in results:
         merged.extend(r)
