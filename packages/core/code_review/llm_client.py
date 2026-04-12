@@ -41,8 +41,13 @@ def extract_json(text: str) -> list | dict:
 
     Handles markdown fences (open or closed), leading/trailing prose, mixed output,
     and truncated arrays (salvages complete objects from cut-off responses).
+    Also handles LLM thinking/reasoning tags wrapping JSON content.
     Returns a list or dict, or raises json.JSONDecodeError / ValueError.
     """
+    # Strip thinking/reasoning tags that may wrap the JSON content.
+    # Covers both XML-style (<think>...</think>) and Qwen internal tokens.
+    text = _THINKING_RE.sub("", text)
+
     # Try closed fence first, then open fence (model truncated without closing ```)
     match = _JSON_FENCE_CLOSED.search(text)
     if not match:
@@ -117,6 +122,23 @@ def get_client(base_url: str, api_key: str) -> AsyncOpenAI:
 
 _call_counter = 0
 
+# Per-agent max_tokens caps tuned for small local models (Qwen3.5-9B class)
+# Prevents filler-token generation; reduces latency significantly.
+_MAX_TOKENS: dict[str, int] = {
+    "syntax": 1024,
+    "logic": 2048,
+    "security": 1536,
+    "git_history": 1024,
+    "orchestrator": 1536,
+    "prefilter": 512,
+}
+
+_THINKING_RE = re.compile(
+    r"<\|reserved_0x[0-9a-f]+\|>[\s\S]*?<\|reserved_0x[0-9a-f]+\|>"  # Qwen internal tokens
+    r"|<think[\s\S]*?</think>",  # XML-style thinking tags
+    re.IGNORECASE,
+)
+
 
 async def call_agent(
     agent: AgentName | str,
@@ -164,17 +186,30 @@ async def call_agent(
                 "chat_template_kwargs": {"enable_thinking": False}
             }
 
+        # Temperature: small local models need higher temp for diverse, non-repetitive output.
+        # Cloud models keep the original low temperature.
+        temp = 0.3 if is_local else temperature
+
         create_kwargs: dict = dict(
             model=provider.model,
             messages=messages,
-            temperature=temperature,
+            temperature=temp,
             **extra,
         )
+        # Use per-agent output cap (saves time on small models); honor caller's override.
+        cap = _MAX_TOKENS.get(agent_name)
         if max_tokens is not None:
-            create_kwargs["max_tokens"] = max_tokens
+            cap = min(max_tokens, cap) if cap else max_tokens
+        if cap:
+            create_kwargs["max_tokens"] = cap
 
         response = await client.chat.completions.create(**create_kwargs)
         content = response.choices[0].message.content or ""
+
+        # Strip thinking tags that slip through even with enable_thinking=False.
+        # Qwen models sometimes emit them anyway when under token pressure.
+        if is_local:
+            content = _THINKING_RE.sub("", content).strip()
 
         bus.emit("llm.response",
             id=call_id, agent=agent_name,
