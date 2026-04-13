@@ -3,508 +3,674 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Code Review Dashboard</title>
+<title>Code Review — Live Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0d1117; --surface: #161b22; --border: #30363d;
-    --text: #e6edf3; --dim: #7d8590; --blue: #58a6ff;
-    --green: #3fb950; --yellow: #d29922; --red: #f85149;
-    --purple: #bc8cff; --cyan: #39d353;
+    --bg: #080c14;
+    --surface: #0d1117;
+    --card: #111827;
+    --border: #1e2a3a;
+    --border-glow: #1a3a5c;
+    --text: #e2e8f0;
+    --dim: #64748b;
+    --blue: #38bdf8;
+    --blue-dim: #0c4a6e;
+    --green: #34d399;
+    --green-dim: #064e3b;
+    --yellow: #fbbf24;
+    --yellow-dim: #451a03;
+    --red: #f87171;
+    --red-dim: #450a0a;
+    --purple: #c084fc;
+    --cyan: #22d3ee;
+    --orange: #fb923c;
   }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
+
   body {
-    font-family: 'Segoe UI', -apple-system, monospace;
-    background: var(--bg); color: var(--text);
-    padding: 20px; line-height: 1.5;
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 20px 24px;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(56,189,248,0.08) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 90% 100%, rgba(52,211,153,0.05) 0%, transparent 50%);
   }
 
-  /* Header */
+  /* ── Header ─────────────────────────────────────────────── */
   .header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 20px; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    padding: 0 4px;
   }
-  .header h1 { font-size: 18px; font-weight: 600; }
-  .header .status { display: flex; align-items: center; gap: 8px; }
-  .status-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--green); animation: pulse 2s infinite;
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--blue), var(--cyan));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    box-shadow: 0 0 20px rgba(56,189,248,0.3);
   }
-  .status-dot.disconnected { background: var(--red); animation: none; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-  .elapsed { color: var(--dim); font-size: 14px; font-family: monospace; }
+  .header-title { display: flex; flex-direction: column; }
+  .header-title h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+  .header-title span { font-size: 12px; color: var(--dim); font-weight: 400; }
 
-  /* Grid */
+  .header-right {
+    display: flex; align-items: center; gap: 20px;
+  }
+  .conn-badge {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 12px; font-weight: 500;
+  }
+  .conn-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  .conn-dot.off { background: var(--red); box-shadow: 0 0 6px var(--red); animation: none; }
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .elapsed {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; color: var(--dim);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 6px;
+  }
+
+  /* ── Grid ────────────────────────────────────────────────── */
   .grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto auto 1fr;
-    gap: 16px;
+    grid-template-columns: 280px 1fr 280px;
+    grid-template-rows: auto auto 1fr auto;
+    gap: 14px;
   }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 700px)  { .grid { grid-template-columns: 1fr; } }
 
-  /* Cards */
+  /* ── Card base ───────────────────────────────────────────── */
   .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; overflow: hidden;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(56,189,248,0.2), transparent);
   }
   .card-header {
-    padding: 10px 16px; border-bottom: 1px solid var(--border);
-    font-size: 13px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.5px; color: var(--dim);
-  }
-  .card-body { padding: 12px 16px; }
-
-  /* Config card */
-  .config-grid {
-    display: grid; grid-template-columns: auto 1fr;
-    gap: 4px 16px; font-size: 13px;
-  }
-  .config-label { color: var(--dim); }
-  .config-value { font-family: monospace; color: var(--cyan); }
-
-  /* Pipeline phases */
-  .phase {
-    display: flex; align-items: center; gap: 12px;
-    padding: 8px 0; border-bottom: 1px solid var(--border);
-  }
-  .phase:last-child { border-bottom: none; }
-  .phase-icon { width: 20px; text-align: center; font-size: 14px; }
-  .phase-name { flex: 1; font-size: 14px; font-weight: 500; }
-  .phase-detail { color: var(--dim); font-size: 12px; font-family: monospace; }
-  .phase-time { color: var(--dim); font-size: 12px; font-family: monospace; min-width: 50px; text-align: right; }
-
-  /* Agent cards */
-  .agents-grid { display: flex; flex-direction: column; gap: 6px; }
-  .agent-row {
-    display: flex; align-items: center; gap: 12px;
-    padding: 10px 12px; background: var(--bg); border-radius: 6px;
-  }
-  .agent-name { flex: 1; font-weight: 500; font-size: 14px; }
-  .agent-model { color: var(--dim); font-size: 11px; font-family: monospace; }
-  .agent-status {
-    font-size: 12px; padding: 2px 8px; border-radius: 10px;
-    font-weight: 500;
-  }
-  .agent-status.pending { color: var(--dim); background: #21262d; }
-  .agent-status.running { color: var(--blue); background: #1a2332; }
-  .agent-status.done { color: var(--green); background: #12261e; }
-  .agent-status.failed { color: var(--red); background: #2d1215; }
-  .agent-timer { color: var(--dim); font-size: 12px; font-family: monospace; min-width: 40px; text-align: right; }
-
-  /* LLM calls */
-  .llm-card { grid-column: 1 / -1; }
-  .llm-calls { display: flex; flex-direction: column; gap: 6px; max-height: 250px; overflow-y: auto; }
-  .llm-row {
-    display: grid; grid-template-columns: 100px 1fr 100px 80px 80px 60px;
-    gap: 8px; align-items: center;
-    padding: 8px 12px; background: var(--bg); border-radius: 6px;
-    font-size: 12px; font-family: monospace;
-  }
-  .llm-row .label { color: var(--dim); }
-  .llm-row .model { color: var(--purple); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .llm-row .size { color: var(--cyan); }
-  .llm-row .tokens { color: var(--yellow); }
-  .llm-row .time { color: var(--green); }
-  .llm-row .status-badge { text-align: center; }
-  .llm-row .status-badge.pending { color: var(--blue); }
-  .llm-row .status-badge.done { color: var(--green); }
-  .llm-row .status-badge.failed { color: var(--red); }
-
-  /* Files card */
-  .files-card { max-height: 300px; }
-  .files-list { max-height: 240px; overflow-y: auto; }
-  .file-row {
-    display: flex; align-items: center; gap: 8px;
-    padding: 4px 0; font-size: 12px; font-family: monospace;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px 10px;
     border-bottom: 1px solid var(--border);
   }
-  .file-row:last-child { border-bottom: none; }
-  .file-icon { color: var(--blue); }
-  .file-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .file-size { color: var(--dim); min-width: 70px; text-align: right; }
+  .card-title {
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px;
+    color: var(--dim);
+  }
+  .card-title .icon { margin-right: 7px; }
+  .card-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--cyan);
+    background: rgba(34,211,238,0.1);
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .card-body { padding: 14px 18px; }
 
-  /* Log panel */
-  .log-card { grid-column: 1 / -1; }
-  .log-entries {
-    max-height: 300px; overflow-y: auto;
-    font-size: 12px; font-family: monospace;
+  /* ── Pipeline ───────────────────────────────────────────── */
+  #phases { display: flex; flex-direction: column; gap: 0; }
+  .phase-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--border);
   }
-  .log-entry {
-    padding: 4px 8px; border-bottom: 1px solid var(--border);
-    display: flex; gap: 12px;
+  .phase-row:last-child { border-bottom: none; }
+  .phase-icon {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
   }
-  .log-entry:last-child { border-bottom: none; }
-  .log-time { color: var(--dim); min-width: 80px; }
-  .log-kind {
-    min-width: 120px; font-weight: 500;
-  }
-  .log-kind.phase { color: var(--blue); }
-  .log-kind.agent { color: var(--purple); }
-  .log-kind.llm { color: var(--cyan); }
-  .log-kind.tool { color: var(--yellow); }
-  .log-kind.file { color: var(--green); }
-  .log-kind.warning { color: var(--red); }
-  .log-msg { color: var(--text); flex: 1; word-break: break-all; }
+  .phase-icon.running { background: var(--blue-dim); color: var(--blue); box-shadow: 0 0 12px rgba(56,189,248,0.2); }
+  .phase-icon.done    { background: var(--green-dim); color: var(--green); }
+  .phase-icon.failed  { background: var(--red-dim); color: var(--red); }
+  .phase-icon.pending { background: rgba(100,116,139,0.15); color: var(--dim); }
 
-  /* Agent context */
-  .agent-ctx-section {
-    margin-bottom: 12px; padding: 10px 14px;
-    background: var(--bg); border-radius: 6px; border-left: 3px solid var(--blue);
+  .phase-info { flex: 1; min-width: 0; }
+  .phase-name { font-size: 13px; font-weight: 600; }
+  .phase-detail { font-size: 11px; color: var(--dim); font-family: 'JetBrains Mono', monospace; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .phase-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    flex-shrink: 0;
   }
-  .agent-ctx-section.done { border-left-color: var(--green); opacity: 0.6; }
-  .agent-ctx-section.running { border-left-color: var(--blue); }
+  .phase-time.running { color: var(--blue); background: var(--blue-dim); }
+  .phase-time.done    { color: var(--green); background: var(--green-dim); }
+  .phase-time.failed  { color: var(--red); background: var(--red-dim); }
+  .phase-time.pending { color: var(--dim); background: rgba(100,116,139,0.1); }
+
+  /* ── Agents ──────────────────────────────────────────────── */
+  .agents-list { display: flex; flex-direction: column; gap: 8px; }
+  .agent-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    display: flex; align-items: center; gap: 12px;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  .agent-card.running { border-color: var(--blue); box-shadow: 0 0 16px rgba(56,189,248,0.1); }
+  .agent-card.done    { border-color: var(--green); opacity: 0.75; }
+  .agent-card.failed   { border-color: var(--red); opacity: 0.8; }
+
+  .agent-icon {
+    width: 34px; height: 34px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; flex-shrink: 0;
+  }
+  .agent-icon.syntax    { background: rgba(168,85,247,0.15); color: #c084fc; }
+  .agent-icon.logic      { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .agent-icon.security   { background: rgba(248,113,113,0.15); color: var(--red); }
+  .agent-icon.git_history { background: rgba(34,211,238,0.15); color: var(--cyan); }
+  .agent-icon.default    { background: rgba(56,189,248,0.15); color: var(--blue); }
+  .agent-icon.pending    { background: rgba(100,116,139,0.15); color: var(--dim); }
+
+  .agent-info { flex: 1; min-width: 0; }
+  .agent-name { font-size: 13px; font-weight: 600; }
+  .agent-model { font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent-meta { display: flex; align-items: center; gap: 6px; }
+  .agent-badge {
+    font-size: 11px; font-weight: 600; padding: 2px 9px;
+    border-radius: 10px; flex-shrink: 0;
+  }
+  .agent-badge.pending { background: rgba(100,116,139,0.15); color: var(--dim); }
+  .agent-badge.running  { background: var(--blue-dim); color: var(--blue); }
+  .agent-badge.done     { background: var(--green-dim); color: var(--green); }
+  .agent-badge.failed   { background: var(--red-dim); color: var(--red); }
+  .agent-timer {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--dim);
+    flex-shrink: 0;
+  }
+
+  /* ── Config ─────────────────────────────────────────────── */
+  .config-grid { display: flex; flex-direction: column; gap: 8px; }
+  .config-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(30,42,58,0.5);
+    font-size: 12px;
+  }
+  .config-row:last-child { border-bottom: none; }
+  .config-label { color: var(--dim); }
+  .config-value { font-family: 'JetBrains Mono', monospace; color: var(--cyan); font-size: 11px; text-align: right; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Agent Context ──────────────────────────────────────── */
+  .agent-ctx-list { display: flex; flex-direction: column; gap: 12px; }
+  .agent-ctx-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    transition: border-color 0.3s;
+  }
+  .agent-ctx-card.running { border-color: var(--blue); }
+  .agent-ctx-card.done    { border-color: var(--green); }
+
   .agent-ctx-header {
-    display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 10px;
   }
-  .agent-ctx-header .name { font-weight: 600; font-size: 14px; }
-  .agent-ctx-header .badge {
-    font-size: 11px; padding: 1px 8px; border-radius: 10px;
-    background: #1a2332; color: var(--blue);
+  .agent-ctx-title {
+    font-size: 13px; font-weight: 700; flex: 1;
   }
-  .agent-ctx-header .badge.done { background: #12261e; color: var(--green); }
-  .agent-ctx-files {
-    display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px;
-    font-family: monospace;
+  .agent-ctx-badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600;
   }
-  .agent-ctx-file {
-    display: flex; align-items: center; gap: 4px;
-    padding: 2px 6px; background: var(--surface); border-radius: 3px;
-  }
-  .agent-ctx-file .path { color: var(--cyan); }
-  .agent-ctx-file .size { color: var(--dim); }
+  .agent-ctx-badge.running { background: var(--blue-dim); color: var(--blue); }
+  .agent-ctx-badge.done    { background: var(--green-dim); color: var(--green); }
+  .agent-ctx-meta { font-size: 11px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
 
-  /* Spinner */
+  .agent-progress-bar {
+    height: 4px; background: var(--border); border-radius: 2px; margin-bottom: 10px; overflow: hidden;
+  }
+  .agent-progress-fill {
+    height: 100%; background: linear-gradient(90deg, var(--blue), var(--cyan));
+    border-radius: 2px;
+    transition: width 0.4s ease;
+    box-shadow: 0 0 8px rgba(56,189,248,0.5);
+  }
+  .agent-progress-fill.done { background: linear-gradient(90deg, var(--green), #6ee7b7); box-shadow: 0 0 8px rgba(52,211,153,0.4); }
+
+  .agent-files { display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto; }
+  .agent-file {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 12px; font-family: 'JetBrains Mono', monospace;
+  }
+  .agent-file.running { background: rgba(56,189,248,0.05); }
+  .agent-file.done    { background: rgba(52,211,153,0.05); opacity: 0.8; }
+  .agent-file.failed  { background: rgba(248,113,113,0.05); }
+  .agent-file.skipped { opacity: 0.5; }
+  .agent-file-icon { font-size: 10px; flex-shrink: 0; }
+  .agent-file-path { flex: 1; color: var(--cyan); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agent-file-meta { font-size: 10px; flex-shrink: 0; }
+  .agent-file-meta.clean  { color: var(--green); }
+  .agent-file-meta.issues{ color: var(--yellow); }
+  .agent-file-meta.err   { color: var(--red); }
+  .agent-file-meta.running{ color: var(--blue); }
+  .agent-file-meta.skipped{ color: var(--dim); }
+
+  /* ── Files ──────────────────────────────────────────────── */
+  .files-list { display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; }
+  .file-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: 6px;
+    font-size: 12px; font-family: 'JetBrains Mono', monospace;
+    border: 1px solid transparent;
+    transition: background 0.2s;
+  }
+  .file-row:hover { background: var(--surface); border-color: var(--border); }
+  .file-icon { color: var(--blue); font-size: 12px; flex-shrink: 0; }
+  .file-path { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-size { color: var(--dim); font-size: 10px; flex-shrink: 0; }
+
+  /* ── Diff ──────────────────────────────────────────────── */
+  .diff-list { display: flex; flex-direction: column; gap: 8px; max-height: 350px; overflow-y: auto; }
+  .diff-row {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px;
+  }
+  .diff-path { font-size: 12px; font-family: 'JetBrains Mono', monospace; color: var(--cyan); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .diff-stats { display: flex; gap: 16px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+  .diff-stat-old { color: var(--red); }
+  .diff-stat-new { color: var(--green); }
+  .diff-bar { display: flex; gap: 2px; height: 5px; margin-top: 8px; }
+  .diff-bar-old { background: var(--red); border-radius: 2px; opacity: 0.7; transition: width 0.4s; }
+  .diff-bar-new { background: var(--green); border-radius: 2px; opacity: 0.7; transition: width 0.4s; }
+
+  /* ── LLM Calls ──────────────────────────────────────────── */
+  .llm-list { display: flex; flex-direction: column; gap: 5px; max-height: 260px; overflow-y: auto; }
+  .llm-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 80px 70px 50px;
+    gap: 10px; align-items: center;
+    padding: 8px 12px;
+    background: var(--surface);
+    border-radius: 8px;
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    border: 1px solid var(--border);
+    transition: border-color 0.2s;
+  }
+  .llm-row:hover { border-color: var(--border-glow); }
+  .llm-row .agent   { font-weight: 600; font-size: 12px; }
+  .llm-row .model   { color: var(--purple); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .llm-row .prompt  { color: var(--dim); }
+  .llm-row .resp    { color: var(--yellow); }
+  .llm-row .time    { color: var(--green); }
+  .llm-row .status  { text-align: center; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 6px; }
+  .llm-row .status.ok  { color: var(--green); background: var(--green-dim); }
+  .llm-row .status.err { color: var(--red); background: var(--red-dim); }
+  .llm-row .status.wait{ color: var(--blue); background: var(--blue-dim); }
+
+  /* ── Event Log ──────────────────────────────────────────── */
+  .log-list { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
+  .log-entry {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 4px 6px; border-radius: 5px;
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    transition: background 0.15s;
+  }
+  .log-entry:hover { background: var(--surface); }
+  .log-time { color: var(--dim); flex-shrink: 0; font-size: 10px; }
+  .log-kind { font-weight: 600; flex-shrink: 0; min-width: 90px; }
+  .log-kind.phase    { color: var(--blue); }
+  .log-kind.agent    { color: var(--purple); }
+  .log-kind.llm      { color: var(--cyan); }
+  .log-kind.tool     { color: var(--orange); }
+  .log-kind.file     { color: var(--green); }
+  .log-kind.log      { color: var(--yellow); }
+  .log-kind.review   { color: var(--green); }
+  .log-msg { color: var(--text); flex: 1; word-break: break-all; font-size: 10px; }
+
+  /* ── Spinner animation ──────────────────────────────────── */
   @keyframes spin { to { transform: rotate(360deg); } }
   .spinner { display: inline-block; animation: spin 1s linear infinite; }
 
-  /* Diff comparison */
-  .diff-card { grid-column: 1 / -1; }
-  .diff-files { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; }
-  .diff-file-row {
-    display: grid; grid-template-columns: 1fr 120px 120px;
-    gap: 8px; align-items: center;
-    padding: 8px 12px; background: var(--bg); border-radius: 6px;
-    font-size: 12px; font-family: monospace;
-  }
-  .diff-file-row .filepath { color: var(--cyan); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .diff-old { color: var(--red); }
-  .diff-new { color: var(--green); }
-  .diff-bar { display: flex; gap: 2px; height: 8px; margin-top: 4px; }
-  .diff-bar .old-bar { background: var(--red); border-radius: 2px; opacity: 0.7; }
-  .diff-bar .new-bar { background: var(--green); border-radius: 2px; opacity: 0.7; }
-
-  /* Scrollbar */
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-track { background: var(--bg); }
+  /* ── Scrollbar ──────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-glow); }
+
+  /* ── Empty state ────────────────────────────────────────── */
+  .empty-state { color: var(--dim); font-size: 12px; padding: 8px 0; }
+
+  /* ── Phase connectors ───────────────────────────────────── */
+  .phase-connector {
+    width: 1px; height: 8px;
+    background: var(--border);
+    margin-left: 15px;
+  }
 </style>
 </head>
 <body>
 
+<!-- Header -->
 <div class="header">
-  <h1>Code Review Monitor</h1>
-  <div class="status">
-    <div class="status-dot" id="connDot"></div>
-    <span id="connText" style="font-size:13px;color:var(--dim)">Connecting...</span>
-    <span class="elapsed" id="elapsed">0s</span>
+  <div class="header-left">
+    <div class="logo">&#9776;</div>
+    <div class="header-title">
+      <h1>Code Review Monitor</h1>
+      <span>Multi-Agent AI-Powered Review</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="conn-badge">
+      <div class="conn-dot" id="connDot"></div>
+      <span id="connText" style="color:var(--dim);font-size:12px">Connecting...</span>
+    </div>
+    <div class="elapsed" id="elapsed">0s</div>
   </div>
 </div>
 
+<!-- Main Grid -->
 <div class="grid">
-  <!-- Config -->
-  <div class="card">
-    <div class="card-header">Configuration</div>
-    <div class="card-body">
-      <div class="config-grid" id="configGrid">
-        <span class="config-label">Loading...</span>
-        <span class="config-value"></span>
+
+  <!-- Left column -->
+  <div style="display:flex;flex-direction:column;gap:14px">
+
+    <!-- Config -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title"><span class="icon">&#9881;</span>Configuration</span>
+      </div>
+      <div class="card-body">
+        <div class="config-grid" id="configGrid">
+          <span class="empty-state">Loading...</span>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Pipeline Phases -->
-  <div class="card">
-    <div class="card-header">Pipeline</div>
-    <div class="card-body" id="phases"></div>
-  </div>
+    <!-- Pipeline -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title"><span class="icon">&#9654;</span>Pipeline</span>
+      </div>
+      <div class="card-body" id="phases"></div>
+    </div>
 
-  <!-- Agents -->
-  <div class="card">
-    <div class="card-header">AI Agents</div>
-    <div class="card-body">
-      <div class="agents-grid" id="agents">
-        <div style="color:var(--dim);font-size:13px">Waiting for agents...</div>
+    <!-- Files Loaded -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title"><span class="icon">&#128196;</span>Files Loaded</span>
+        <span class="card-badge" id="fileCount">0</span>
+      </div>
+      <div class="card-body" style="padding:10px 14px">
+        <div class="files-list" id="files">
+          <span class="empty-state">No files loaded yet</span>
+        </div>
       </div>
     </div>
+
   </div>
 
-  <!-- Agent Context — what each agent is processing -->
-  <div class="card" style="grid-column: 1 / -1;">
-    <div class="card-header">Agent Context — Files Being Analyzed</div>
-    <div class="card-body" id="agentContext">
-      <div style="color:var(--dim);font-size:13px">Waiting for agents to start...</div>
-    </div>
-  </div>
+  <!-- Center column -->
+  <div style="display:flex;flex-direction:column;gap:14px">
 
-  <!-- Old vs New Code -->
-  <div class="card diff-card">
-    <div class="card-header">Old vs New Code <span id="diffCount" style="color:var(--cyan)"></span></div>
-    <div class="card-body">
-      <div class="diff-files" id="diffFiles">
-        <div style="color:var(--dim);font-size:13px">Waiting for diff analysis...</div>
+    <!-- Agent Context -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title"><span class="icon">&#128172;</span>Agent Context</span>
+      </div>
+      <div class="card-body" id="agentContext" style="padding:12px 14px">
+        <span class="empty-state">Waiting for agents to start...</span>
       </div>
     </div>
-  </div>
 
-  <!-- Files -->
-  <div class="card files-card">
-    <div class="card-header">Files Loaded <span id="fileCount" style="color:var(--cyan)"></span></div>
-    <div class="card-body">
-      <div class="files-list" id="files"></div>
-    </div>
-  </div>
-
-  <!-- LLM Calls -->
-  <div class="card llm-card">
-    <div class="card-header">LLM Calls</div>
-    <div class="card-body">
-      <div class="llm-calls" id="llmCalls">
-        <div style="color:var(--dim);font-size:13px">No LLM calls yet...</div>
+    <!-- Diff -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title"><span class="icon">&#8652;</span>Code Changes</span>
+        <span class="card-badge" id="diffCount"></span>
+      </div>
+      <div class="card-body" style="padding:10px 14px">
+        <div class="diff-list" id="diffFiles">
+          <span class="empty-state">Waiting for diff analysis...</span>
+        </div>
       </div>
     </div>
+
+    <!-- Event Log -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title"><span class="icon">&#128203;</span>Event Log</span>
+        <span class="card-badge" id="eventCount">(0)</span>
+      </div>
+      <div class="card-body" style="padding:10px 14px">
+        <div class="log-list" id="logEntries"></div>
+      </div>
+    </div>
+
   </div>
 
-  <!-- Event Log -->
-  <div class="card log-card">
-    <div class="card-header">Event Log <span id="eventCount" style="color:var(--dim)">(0)</span></div>
-    <div class="card-body">
-      <div class="log-entries" id="logEntries"></div>
+  <!-- Right column -->
+  <div style="display:flex;flex-direction:column;gap:14px">
+
+    <!-- Agents -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title"><span class="icon">&#128640;</span>AI Agents</span>
+        <span class="card-badge" id="agentCount">0</span>
+      </div>
+      <div class="card-body" id="agents" style="padding:12px 14px">
+        <span class="empty-state">Waiting for agents...</span>
+      </div>
     </div>
+
+    <!-- LLM Calls -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title"><span class="icon">&#129302;</span>LLM Calls</span>
+        <span class="card-badge" id="llmCount">0</span>
+      </div>
+      <div class="card-body" style="padding:10px 14px">
+        <div class="llm-list" id="llmCalls">
+          <span class="empty-state">No LLM calls yet...</span>
+        </div>
+      </div>
+    </div>
+
   </div>
+
 </div>
 
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
-
 const state = {
   connected: false,
   startTime: null,
-  phases: {},        // name → {status, detail, startTime, endTime}
-  agents: {},        // name → {status, model, startTime, endTime}
-  files: [],         // [{path, chars}]
-  llmCalls: [],      // [{agent, model, promptChars, responseChars, status, startTime, endTime}]
-  agentFiles: {},    // agent → {files: [{path, chars}], status}
-  agentFileProgress: {},  // agent → {files: [{path, status, findings, error}], currentFile, total}
-  diffFiles: [],     // [{path, oldLines, newLines, oldChars, newChars}]
-  events: [],        // all events for log
+  phases: {},
+  agents: {},
+  files: [],
+  llmCalls: [],
+  agentFiles: {},
+  agentFileProgress: {},
+  diffFiles: [],
+  events: [],
 };
 
-// ── SSE Connection ─────────────────────────────────────────────────────────
+const PHASE_LABELS = {
+  static_analysis: 'Static Analysis',
+  context: 'Context Assembly',
+  agents: 'AI Agents'
+};
+const PHASE_ORDER = ['static_analysis', 'context', 'agents'];
+const AGENT_ORDER = ['syntax', 'logic', 'security', 'git_history'];
+const AGENT_ICONS = { syntax:'S', logic:'L', security:'&#9888;', git_history:'&#128269;' };
 
+function agentIconClass(name) {
+  return AGENT_ORDER.includes(name) ? name : 'default';
+}
+
+// ── SSE ────────────────────────────────────────────────────────────────────
 function connect() {
   const es = new EventSource('/events');
-
   es.onopen = () => {
     state.connected = true;
     if (!state.startTime) state.startTime = Date.now();
     render();
   };
-
   es.onerror = () => {
     state.connected = false;
     render();
   };
 
-  // Listen to all event types
-  const eventTypes = [
-    'phase.start', 'phase.done', 'phase.fail',
-    'agent.start', 'agent.done', 'agent.fail', 'agent.set', 'agent.files',
-    'agent.file.start', 'agent.file.done', 'agent.file.skip',
-    'llm.request', 'llm.response', 'llm.error',
-    'diff.file',
-    'file.loaded', 'tool.start', 'tool.done', 'tool.skip',
-    'log.warning', 'log.error',
-    'review.start', 'review.done',
-  ];
+  [
+    'phase.start','phase.done','phase.fail',
+    'agent.start','agent.done','agent.fail','agent.set','agent.files',
+    'agent.file.start','agent.file.done','agent.file.skip',
+    'llm.request','llm.response','llm.error',
+    'diff.file','file.loaded','tool.start','tool.done','tool.skip',
+    'log.warning','log.error',
+    'review.start','review.done',
+  ].forEach(type => es.addEventListener(type, e => handleEvent(JSON.parse(e.data))));
 
-  eventTypes.forEach(type => {
-    es.addEventListener(type, (e) => {
-      const event = JSON.parse(e.data);
-      handleEvent(event);
-    });
-  });
-
-  // Fallback: unnamed messages
-  es.onmessage = (e) => {
-    if (e.data.startsWith('{')) {
-      const event = JSON.parse(e.data);
-      handleEvent(event);
-    }
-  };
+  es.onmessage = e => { if (e.data.startsWith('{')) handleEvent(JSON.parse(e.data)); };
 }
 
 function handleEvent(event) {
   const {kind, data, ts} = event;
   state.events.push(event);
-
   if (!state.startTime) state.startTime = ts * 1000;
 
-  switch (kind) {
-    case 'review.start':
-      state.startTime = ts * 1000;
-      break;
+  switch(kind) {
+    case 'review.start': state.startTime = ts * 1000; break;
 
     case 'phase.start':
-      state.phases[data.phase] = {
-        status: 'running', detail: data.detail || '',
-        startTime: ts, endTime: null
-      };
+      state.phases[data.phase] = {status:'running',detail:data.detail||'',startTime:ts,endTime:null};
       break;
     case 'phase.done':
-      if (state.phases[data.phase]) {
-        state.phases[data.phase].status = 'done';
-        state.phases[data.phase].detail = data.detail || state.phases[data.phase].detail;
-        state.phases[data.phase].endTime = ts;
-      }
+      if(state.phases[data.phase]) { state.phases[data.phase].status='done'; state.phases[data.phase].detail=data.detail||state.phases[data.phase].detail; state.phases[data.phase].endTime=ts; }
       break;
     case 'phase.fail':
-      if (state.phases[data.phase]) {
-        state.phases[data.phase].status = 'failed';
-        state.phases[data.phase].detail = data.detail || '';
-        state.phases[data.phase].endTime = ts;
-      }
+      if(state.phases[data.phase]) { state.phases[data.phase].status='failed'; state.phases[data.phase].detail=data.detail||''; state.phases[data.phase].endTime=ts; }
       break;
 
     case 'agent.set':
-      (data.agents || []).forEach(a => {
-        if (!state.agents[a]) state.agents[a] = {status: 'pending', model: '', startTime: null, endTime: null};
-      });
+      (data.agents||[]).forEach(a => { if(!state.agents[a]) state.agents[a]={status:'pending',model:'',startTime:null,endTime:null}; });
       break;
     case 'agent.start':
-      state.agents[data.agent] = {
-        ...(state.agents[data.agent] || {}),
-        status: 'running', model: data.model || '', startTime: ts, endTime: null
-      };
+      state.agents[data.agent] = {...(state.agents[data.agent]||{}), status:'running', model:data.model||'', startTime:ts, endTime:null};
       break;
     case 'agent.files':
-      state.agentFiles[data.agent] = {
-        files: (data.files || []).map(f => ({
-          path: f,
-          chars: (data.chars && data.chars[f]) || 0
-        })),
-        status: 'running'
-      };
+      state.agentFiles[data.agent] = {files:(data.files||[]).map(f=>({path:f,chars:(data.chars&&data.chars[f])||0})), status:'running'};
       break;
     case 'agent.done':
-      if (state.agents[data.agent]) {
-        state.agents[data.agent].status = 'done';
-        state.agents[data.agent].endTime = ts;
-        if (data.findings !== undefined) state.agents[data.agent].findings = data.findings;
-      }
-      if (state.agentFiles[data.agent]) state.agentFiles[data.agent].status = 'done';
+      if(state.agents[data.agent]) { state.agents[data.agent].status='done'; state.agents[data.agent].endTime=ts; if(data.findings!==undefined) state.agents[data.agent].findings=data.findings; }
+      if(state.agentFiles[data.agent]) state.agentFiles[data.agent].status='done';
       break;
     case 'agent.fail':
-      if (state.agents[data.agent]) {
-        state.agents[data.agent].status = 'failed';
-        state.agents[data.agent].endTime = ts;
-        state.agents[data.agent].error = data.error || '';
-      }
+      if(state.agents[data.agent]) { state.agents[data.agent].status='failed'; state.agents[data.agent].endTime=ts; state.agents[data.agent].error=data.error||''; }
       break;
 
     case 'agent.file.start': {
       const a = data.agent;
-      if (!state.agentFileProgress[a]) state.agentFileProgress[a] = {files: [], currentFile: null, total: 0};
-      state.agentFileProgress[a].currentFile = data.file;
-      state.agentFileProgress[a].total = data.total || 0;
-      state.agentFileProgress[a].files.push({
-        path: data.file, status: 'running', findings: 0,
-        chars: data.chars || 0, startTime: ts, endTime: null
-      });
+      if(!state.agentFileProgress[a]) state.agentFileProgress[a]={files:[],currentFile:null,total:0};
+      state.agentFileProgress[a].currentFile=data.file;
+      state.agentFileProgress[a].total=data.total||0;
+      state.agentFileProgress[a].files.push({path:data.file,status:'running',findings:0,chars:data.chars||0,startTime:ts,endTime:null});
       break;
     }
     case 'agent.file.done': {
       const a = data.agent;
-      if (state.agentFileProgress[a]) {
-        const f = state.agentFileProgress[a].files.find(f => f.path === data.file);
-        if (f) {
-          f.status = data.error ? 'failed' : (data.cached ? 'cached' : 'done');
-          f.findings = data.findings || 0;
-          f.error = data.error || '';
-          f.endTime = ts;
-        }
-        state.agentFileProgress[a].currentFile = null;
+      if(state.agentFileProgress[a]) {
+        const f = state.agentFileProgress[a].files.find(f=>f.path===data.file);
+        if(f) { f.status=data.error?'failed':(data.cached?'cached':'done'); f.findings=data.findings||0; f.error=data.error||''; f.endTime=ts; }
+        state.agentFileProgress[a].currentFile=null;
       }
       break;
     }
     case 'agent.file.skip': {
       const a = data.agent;
-      if (!state.agentFileProgress[a]) state.agentFileProgress[a] = {files: [], currentFile: null, total: 0};
-      state.agentFileProgress[a].files.push({
-        path: data.file, status: 'skipped', findings: 0, reason: data.reason
-      });
+      if(!state.agentFileProgress[a]) state.agentFileProgress[a]={files:[],currentFile:null,total:0};
+      state.agentFileProgress[a].files.push({path:data.file,status:'skipped',findings:0,reason:data.reason});
       break;
     }
 
     case 'llm.request':
-      state.llmCalls.push({
-        id: data.id || state.llmCalls.length,
-        agent: data.agent, model: data.model,
-        promptChars: data.prompt_chars || 0,
-        responseChars: 0, status: 'pending',
-        startTime: ts, endTime: null
-      });
+      state.llmCalls.push({id:data.id||state.llmCalls.length,agent:data.agent,model:data.model,promptChars:data.prompt_chars||0,responseChars:0,status:'waiting',startTime:ts,endTime:null});
       break;
-    case 'llm.response':
-      const call = state.llmCalls.find(c => c.id === data.id) || state.llmCalls[state.llmCalls.length - 1];
-      if (call) {
-        call.status = 'done';
-        call.responseChars = data.response_chars || 0;
-        call.endTime = ts;
-      }
+    case 'llm.response': {
+      const c = state.llmCalls.find(c=>c.id===data.id)||state.llmCalls[state.llmCalls.length-1];
+      if(c) { c.status='done'; c.responseChars=data.response_chars||0; c.endTime=ts; }
       break;
-    case 'llm.error':
-      const errCall = state.llmCalls.find(c => c.id === data.id) || state.llmCalls[state.llmCalls.length - 1];
-      if (errCall) {
-        errCall.status = 'failed';
-        errCall.error = data.error || '';
-        errCall.endTime = ts;
-      }
+    }
+    case 'llm.error': {
+      const c = state.llmCalls.find(c=>c.id===data.id)||state.llmCalls[state.llmCalls.length-1];
+      if(c) { c.status='err'; c.error=data.error||''; c.endTime=ts; }
       break;
+    }
 
     case 'diff.file':
-      state.diffFiles.push({
-        path: data.path || '',
-        oldLines: data.old_lines || 0, newLines: data.new_lines || 0,
-        oldChars: data.old_chars || 0, newChars: data.new_chars || 0,
-      });
+      state.diffFiles.push({path:data.path||'',oldLines:data.old_lines||0,newLines:data.new_lines||0,oldChars:data.old_chars||0,newChars:data.new_chars||0});
       break;
-
     case 'file.loaded':
-      state.files.push({path: data.path || '', chars: data.chars || 0});
+      state.files.push({path:data.path||'',chars:data.chars||0});
       break;
-
-    case 'tool.start':
-    case 'tool.done':
-    case 'tool.skip':
-      break; // rendered in event log
-
-    case 'log.warning':
-    case 'log.error':
-      break; // rendered in event log
   }
 
   render();
 }
 
-// ── Rendering ──────────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function fmtDur(start, end) {
+  if(!start) return '';
+  const s = ((end||Date.now()/1000) - start);
+  if(s < 60) return s.toFixed(1) + 's';
+  return Math.floor(s/60) + 'm ' + Math.floor(s%60) + 's';
+}
+function fmtChars(n) {
+  if(n > 1000000) return (n/1000000).toFixed(1) + 'M';
+  if(n > 1000) return (n/1000).toFixed(1) + 'K';
+  return n.toString();
+}
+function shortPath(p) {
+  const parts = p.split(/[/\\]/);
+  return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : p;
+}
+function shortModel(m) { return (m||'').split('/').pop(); }
 
+// ── Render ──────────────────────────────────────────────────────────────────
 function render() {
-  // Connection status
-  const dot = document.getElementById('connDot');
-  const text = document.getElementById('connText');
-  dot.className = state.connected ? 'status-dot' : 'status-dot disconnected';
-  text.textContent = state.connected ? 'Connected' : 'Disconnected';
+  // Connection
+  document.getElementById('connDot').className = 'conn-dot' + (state.connected ? '' : ' off');
+  document.getElementById('connText').textContent = state.connected ? 'Live' : 'Disconnected';
+  document.getElementById('connText').style.color = state.connected ? 'var(--green)' : 'var(--red)';
 
   renderPhases();
   renderAgents();
@@ -515,200 +681,129 @@ function render() {
   renderLog();
 }
 
-function fmtDuration(startTs, endTs) {
-  const s = (endTs || Date.now()/1000) - startTs;
-  if (s < 60) return s.toFixed(1) + 's';
-  return Math.floor(s/60) + 'm ' + Math.floor(s%60) + 's';
-}
-
-function fmtChars(n) {
-  if (n > 1000000) return (n/1000000).toFixed(1) + 'M';
-  if (n > 1000) return (n/1000).toFixed(1) + 'K';
-  return n.toString();
-}
-
 function renderPhases() {
   const el = document.getElementById('phases');
-  const phaseOrder = ['static_analysis', 'context', 'agents'];
-  const phaseLabels = {
-    static_analysis: 'Static Analysis',
-    context: 'Context Assembly',
-    agents: 'AI Agents'
-  };
-
-  el.innerHTML = phaseOrder.map(name => {
-    const p = state.phases[name] || {status: 'pending', detail: ''};
-    let icon, timeStr = '';
-
-    if (p.status === 'running') {
-      icon = '<span class="spinner" style="color:var(--blue)">&#9696;</span>';
-      if (p.startTime) timeStr = fmtDuration(p.startTime, null);
-    } else if (p.status === 'done') {
-      icon = '<span style="color:var(--green)">&#10003;</span>';
-      if (p.startTime && p.endTime) timeStr = fmtDuration(p.startTime, p.endTime);
-    } else if (p.status === 'failed') {
-      icon = '<span style="color:var(--red)">&#10007;</span>';
-    } else {
-      icon = '<span style="color:var(--dim)">&#9675;</span>';
-    }
-
-    return `<div class="phase">
-      <div class="phase-icon">${icon}</div>
-      <div class="phase-name">${phaseLabels[name] || name}</div>
-      <div class="phase-detail">${p.detail}</div>
-      <div class="phase-time">${timeStr}</div>
+  el.innerHTML = PHASE_ORDER.map(name => {
+    const p = state.phases[name] || {status:'pending',detail:''};
+    const s = p.status;
+    let ico, lbl;
+    if(s==='running')  { ico='<span class="spinner">◐</span>'; lbl='running'; }
+    else if(s==='done')  { ico='✓'; lbl='done'; }
+    else if(s==='failed'){ ico='✗'; lbl='failed'; }
+    else { ico='○'; lbl='pending'; }
+    return `<div class="phase-row">
+      <div class="phase-icon ${s}">${ico}</div>
+      <div class="phase-info">
+        <div class="phase-name">${PHASE_LABELS[name]||name}</div>
+        <div class="phase-detail">${p.detail}</div>
+      </div>
+      <div class="phase-time ${s}">${lbl} ${s==='running'&&p.startTime ? fmtDur(p.startTime,null) : ''}</div>
     </div>`;
   }).join('');
 }
 
 function renderAgents() {
   const el = document.getElementById('agents');
-  const agentNames = Object.keys(state.agents);
-  if (agentNames.length === 0) {
-    el.innerHTML = '<div style="color:var(--dim);font-size:13px">Waiting for agents...</div>';
-    return;
-  }
-
-  const order = ['syntax', 'logic', 'security', 'git_history'];
-  const sorted = order.filter(a => agentNames.includes(a)).concat(agentNames.filter(a => !order.includes(a)));
-
-  el.innerHTML = sorted.map(name => {
+  const names = Object.keys(state.agents);
+  document.getElementById('agentCount').textContent = names.length || '0';
+  if(!names.length) { el.innerHTML='<span class="empty-state">Waiting for agents...</span>'; return; }
+  const sorted = [...AGENT_ORDER.filter(a=>names.includes(a)), ...names.filter(a=>!AGENT_ORDER.includes(a))];
+  el.innerHTML = `<div class="agents-list">${sorted.map(name => {
     const a = state.agents[name];
-    let timeStr = '';
-    if (a.startTime) timeStr = fmtDuration(a.startTime, a.endTime);
-
-    return `<div class="agent-row">
-      <div class="agent-name">${name}</div>
-      <div class="agent-model">${a.model || ''}</div>
-      <div class="agent-status ${a.status}">${a.status}</div>
-      <div class="agent-timer">${timeStr}</div>
+    const icon = AGENT_ICONS[name] || 'A';
+    const done = a.status==='done' ? fmtDur(a.startTime, a.endTime) : (a.startTime ? fmtDur(a.startTime, null) : '');
+    return `<div class="agent-card ${a.status}">
+      <div class="agent-icon ${agentIconClass(name)}">${icon}</div>
+      <div class="agent-info">
+        <div class="agent-name">${name}</div>
+        <div class="agent-model">${shortModel(a.model)||'—'}</div>
+      </div>
+      <div class="agent-meta">
+        <span class="agent-badge ${a.status}">${a.status}</span>
+        <span class="agent-timer">${done}</span>
+      </div>
     </div>`;
-  }).join('');
+  }).join('')}</div>`;
 }
 
 function renderAgentContext() {
   const el = document.getElementById('agentContext');
-  const progressAgents = Object.keys(state.agentFileProgress);
-  const fileAgents = Object.keys(state.agentFiles);
-  const allAgents = [...new Set([...progressAgents, ...fileAgents])];
+  const keys = [...new Set([...Object.keys(state.agentFileProgress),...Object.keys(state.agentFiles)])];
+  if(!keys.length) { el.innerHTML='<span class="empty-state">Waiting for agents to start...</span>'; return; }
+  const sorted = [...AGENT_ORDER.filter(a=>keys.includes(a)), ...keys.filter(a=>!AGENT_ORDER.includes(a))];
+  el.innerHTML = `<div class="agent-ctx-list">${sorted.map(agent => {
+    const prog = state.agentFileProgress[agent];
+    const ctx = state.agentFiles[agent];
+    const aState = state.agents[agent] || {};
+    const isDone = aState.status==='done';
 
-  if (allAgents.length === 0) {
-    el.innerHTML = '<div style="color:var(--dim);font-size:13px">Waiting for agents to start...</div>';
-    return;
-  }
-
-  const order = ['syntax', 'logic', 'security', 'git_history'];
-  const sorted = order.filter(a => allAgents.includes(a)).concat(allAgents.filter(a => !order.includes(a)));
-
-  el.innerHTML = sorted.map(agent => {
-    const progress = state.agentFileProgress[agent];
-    const agentState = state.agents[agent] || {};
-    const isAgentDone = agentState.status === 'done';
-
-    let timeStr = '';
-    if (agentState.startTime) timeStr = fmtDuration(agentState.startTime, agentState.endTime);
-
-    if (!progress || progress.files.length === 0) {
-      // No per-file data yet — show file list from agent.files event
-      const ctx = state.agentFiles[agent];
-      if (!ctx) return '';
-      const statusClass = isAgentDone ? 'done' : 'running';
-      const filesHtml = ctx.files.map(f => {
-        const shortPath = f.path.split(/[/\\]/).slice(-2).join('/');
-        return `<div class="agent-ctx-file"><span class="path">${shortPath}</span></div>`;
-      }).join('');
-      return `<div class="agent-ctx-section ${statusClass}">
+    if(!prog || prog.files.length===0) {
+      if(!ctx) return '';
+      const filesHtml = ctx.files.slice(0,5).map(f =>
+        `<div class="agent-file done"><span class="agent-file-icon">&#10003;</span><span class="agent-file-path">${shortPath(f.path)}</span></div>`
+      ).join('');
+      return `<div class="agent-ctx-card ${isDone?'done':'running'}">
         <div class="agent-ctx-header">
-          <span class="name">${agent}</span>
-          <span class="badge ${statusClass}">${isAgentDone ? 'done' : 'starting...'}</span>
-          <span style="color:var(--dim);font-size:12px;font-family:monospace;margin-left:auto">${timeStr}</span>
+          <span class="agent-ctx-title">${agent}</span>
+          <span class="agent-ctx-badge ${isDone?'done':'running'}">${isDone?'done':'starting'}</span>
         </div>
-        <div class="agent-ctx-files">${filesHtml}</div>
+        <div class="agent-files">${filesHtml||'<span class="empty-state" style="padding:4px">No files</span>'}</div>
       </div>`;
     }
 
-    // Per-file progress view
-    const done = progress.files.filter(f => f.status === 'done' || f.status === 'cached').length;
-    const total = progress.total || progress.files.length;
-    const totalFindings = progress.files.reduce((s, f) => s + (f.findings || 0), 0);
-    const statusClass = isAgentDone ? 'done' : 'running';
-    const progressPct = total > 0 ? Math.round((done / total) * 100) : 0;
+    const done = prog.files.filter(f=>f.status==='done'||f.status==='cached').length;
+    const total = prog.total || prog.files.length;
+    const pct = total > 0 ? Math.round((done/total)*100) : 0;
+    const findings = prog.files.reduce((s,f)=>s+(f.findings||0),0);
 
-    const filesHtml = progress.files.map(f => {
-      const shortPath = f.path.split(/[/\\]/).slice(-2).join('/');
-      let icon, style, extra = '';
-      if (f.status === 'running') {
-        icon = '<span class="spinner" style="font-size:10px">&#9696;</span>';
-        style = 'border-left: 2px solid var(--blue)';
-        if (f.startTime) extra = `<span class="size">${fmtDuration(f.startTime, null)}</span>`;
-      } else if (f.status === 'done' || f.status === 'cached') {
-        icon = '<span style="color:var(--green)">&#10003;</span>';
-        style = 'border-left: 2px solid var(--green); opacity: 0.7';
-        if (f.findings > 0) extra = `<span style="color:var(--yellow)">${f.findings} issue${f.findings > 1 ? 's' : ''}</span>`;
-        else extra = '<span style="color:var(--green)">clean</span>';
-        if (f.status === 'cached') extra += ' <span style="color:var(--dim)">(cached)</span>';
-      } else if (f.status === 'failed') {
-        icon = '<span style="color:var(--red)">&#10007;</span>';
-        style = 'border-left: 2px solid var(--red)';
-        extra = `<span style="color:var(--red)">${f.error || 'failed'}</span>`;
-      } else if (f.status === 'skipped') {
-        icon = '<span style="color:var(--dim)">&#8211;</span>';
-        style = 'opacity: 0.5';
-        extra = '<span style="color:var(--dim)">skipped</span>';
-      } else {
-        icon = '<span style="color:var(--dim)">&#9675;</span>';
-        style = 'opacity: 0.5';
-      }
-
-      return `<div class="agent-ctx-file" style="${style}; padding: 4px 8px;">
-        ${icon} <span class="path">${shortPath}</span> ${extra}
+    const filesHtml = prog.files.map(f => {
+      let ico, cls, meta;
+      if(f.status==='running')  { ico='<span class="spinner" style="font-size:9px">◐</span>'; cls='running'; meta=`${fmtDur(f.startTime,null)}`; metaCls='running'; }
+      else if(f.status==='done')  { ico='✓'; cls='done'; meta=f.findings>0?`${f.findings} issue${f.findings>1?'s':''}`:'clean'; metaCls=f.findings>0?'issues':'clean'; }
+      else if(f.status==='cached'){ ico='✓'; cls='done'; meta='cached'; metaCls='clean'; }
+      else if(f.status==='failed'){ ico='✗'; cls='failed'; meta=(f.error||'err').split(' ')[0]; metaCls='err'; }
+      else { ico='○'; cls='skipped'; meta='skip'; metaCls='skipped'; }
+      return `<div class="agent-file ${cls}">
+        <span class="agent-file-icon">${ico}</span>
+        <span class="agent-file-path">${shortPath(f.path)}</span>
+        <span class="agent-file-meta ${metaCls}">${meta}</span>
       </div>`;
     }).join('');
 
-    // Progress bar
-    const barHtml = `<div style="width:100%;height:4px;background:var(--border);border-radius:2px;margin:6px 0">
-      <div style="width:${progressPct}%;height:100%;background:var(--green);border-radius:2px;transition:width 0.3s"></div>
-    </div>`;
-
-    return `<div class="agent-ctx-section ${statusClass}">
+    return `<div class="agent-ctx-card ${isDone?'done':'running'}">
       <div class="agent-ctx-header">
-        <span class="name">${agent}</span>
-        <span class="badge ${statusClass}">${isAgentDone ? 'done' : `${done}/${total} files`}</span>
-        <span style="color:var(--yellow);font-size:12px">${totalFindings > 0 ? totalFindings + ' issues' : ''}</span>
-        <span style="color:var(--dim);font-size:12px;font-family:monospace;margin-left:auto">${timeStr}</span>
+        <span class="agent-ctx-title">${agent}</span>
+        <span class="agent-ctx-badge ${isDone?'done':'running'}">${isDone?'done':`${done}/${total} files`}</span>
+        ${findings>0?`<span style="font-size:11px;color:var(--yellow)">${findings} issue${findings>1?'s':''}</span>`:''}
+        <span class="agent-ctx-meta" style="margin-left:auto">${aState.startTime?fmtDur(aState.startTime,aState.endTime):''}</span>
       </div>
-      ${barHtml}
-      <div class="agent-ctx-files" style="flex-direction:column">${filesHtml}</div>
+      <div class="agent-progress-bar">
+        <div class="agent-progress-fill ${isDone?'done':''}" style="width:${pct}%"></div>
+      </div>
+      <div class="agent-files">${filesHtml}</div>
     </div>`;
-  }).join('');
+  }).join('')}</div>`;
 }
 
 function renderDiffFiles() {
   const el = document.getElementById('diffFiles');
   const countEl = document.getElementById('diffCount');
-  countEl.textContent = state.diffFiles.length ? `(${state.diffFiles.length} files)` : '';
-
-  if (state.diffFiles.length === 0) {
-    el.innerHTML = '<div style="color:var(--dim);font-size:13px">Waiting for diff analysis...</div>';
-    return;
-  }
-
+  countEl.textContent = state.diffFiles.length ? `${state.diffFiles.length} files` : '';
+  if(!state.diffFiles.length) { el.innerHTML='<span class="empty-state">Waiting for diff analysis...</span>'; return; }
+  const maxC = Math.max(...state.diffFiles.map(f=>Math.max(f.oldChars,f.newChars,1)));
   el.innerHTML = state.diffFiles.map(f => {
-    const shortPath = f.path.split(/[/\\]/).slice(-3).join('/');
-    const maxChars = Math.max(f.oldChars, f.newChars, 1);
-    const oldPct = Math.round((f.oldChars / maxChars) * 100);
-    const newPct = Math.round((f.newChars / maxChars) * 100);
-
-    return `<div class="diff-file-row">
-      <div>
-        <div class="filepath" title="${f.path}">${shortPath}</div>
-        <div class="diff-bar">
-          <div class="old-bar" style="width:${oldPct}%"></div>
-          <div class="new-bar" style="width:${newPct}%"></div>
-        </div>
+    const pctOld = Math.round((f.oldChars/maxC)*100);
+    const pctNew = Math.round((f.newChars/maxC)*100);
+    return `<div class="diff-row">
+      <div class="diff-path">${f.path}</div>
+      <div class="diff-stats">
+        <span class="diff-stat-old">- ${f.oldLines} lines (${fmtChars(f.oldChars)})</span>
+        <span class="diff-stat-new">+ ${f.newLines} lines (${fmtChars(f.newChars)})</span>
       </div>
-      <div class="diff-old">- ${f.oldLines} lines (${fmtChars(f.oldChars)})</div>
-      <div class="diff-new">+ ${f.newLines} lines (${fmtChars(f.newChars)})</div>
+      <div class="diff-bar">
+        <div class="diff-bar-old" style="width:${pctOld}%"></div>
+        <div class="diff-bar-new" style="width:${pctNew}%"></div>
+      </div>
     </div>`;
   }).join('');
 }
@@ -716,45 +811,35 @@ function renderDiffFiles() {
 function renderFiles() {
   const el = document.getElementById('files');
   const countEl = document.getElementById('fileCount');
-  countEl.textContent = state.files.length ? `(${state.files.length})` : '';
-
-  if (state.files.length === 0) {
-    el.innerHTML = '<div style="color:var(--dim);font-size:13px">No files loaded yet</div>';
-    return;
-  }
-
-  el.innerHTML = state.files.map(f => {
-    const shortPath = f.path.split(/[/\\]/).slice(-3).join('/');
-    return `<div class="file-row">
+  countEl.textContent = state.files.length || '0';
+  if(!state.files.length) { el.innerHTML='<span class="empty-state">No files loaded yet</span>'; return; }
+  el.innerHTML = state.files.map(f =>
+    `<div class="file-row">
       <span class="file-icon">&#128196;</span>
-      <span class="file-path" title="${f.path}">${shortPath}</span>
-      <span class="file-size">${fmtChars(f.chars)} chars</span>
-    </div>`;
-  }).join('');
+      <span class="file-path" title="${f.path}">${shortPath(f.path)}</span>
+      <span class="file-size">${fmtChars(f.chars)}</span>
+    </div>`
+  ).join('');
 }
 
 function renderLLMCalls() {
   const el = document.getElementById('llmCalls');
-  if (state.llmCalls.length === 0) {
-    el.innerHTML = '<div style="color:var(--dim);font-size:13px">No LLM calls yet...</div>';
-    return;
-  }
-
+  const countEl = document.getElementById('llmCount');
+  countEl.textContent = state.llmCalls.length || '0';
+  if(!state.llmCalls.length) { el.innerHTML='<span class="empty-state">No LLM calls yet...</span>'; return; }
   el.innerHTML = state.llmCalls.map(c => {
-    let timeStr = '';
-    if (c.startTime) timeStr = fmtDuration(c.startTime, c.endTime);
-    const shortModel = (c.model || '').split('/').pop();
-
+    let sCls, sLbl;
+    if(c.status==='done') { sCls='ok'; sLbl='OK'; }
+    else if(c.status==='err') { sCls='err'; sLbl='ERR'; }
+    else { sCls='wait'; sLbl='...'; }
     return `<div class="llm-row">
-      <span class="label">${c.agent || '?'}</span>
-      <span class="model" title="${c.model}">${shortModel}</span>
-      <span class="size">prompt: ${fmtChars(c.promptChars)}</span>
-      <span class="size">resp: ${fmtChars(c.responseChars)}</span>
-      <span class="time">${timeStr}</span>
-      <span class="status-badge ${c.status}">${c.status === 'pending' ? '...' : c.status === 'done' ? 'OK' : 'ERR'}</span>
+      <span class="agent">${c.agent||'?'}</span>
+      <span class="model" title="${c.model}">${shortModel(c.model)}</span>
+      <span class="prompt">${fmtChars(c.promptChars)} in</span>
+      <span class="resp">${fmtChars(c.responseChars)} out</span>
+      <span class="status ${sCls}">${sLbl}</span>
     </div>`;
   }).join('');
-
   el.scrollTop = el.scrollHeight;
 }
 
@@ -762,70 +847,47 @@ function renderLog() {
   const el = document.getElementById('logEntries');
   const countEl = document.getElementById('eventCount');
   countEl.textContent = `(${state.events.length})`;
-
-  // Show last 100 events
-  const recent = state.events.slice(-100);
+  const recent = state.events.slice(-80);
   el.innerHTML = recent.map(ev => {
-    const t = new Date(ev.ts * 1000);
-    const timeStr = t.toLocaleTimeString();
-    const kindClass = ev.kind.split('.')[0];
-    const msg = Object.entries(ev.data || {}).map(([k,v]) => {
-      if (typeof v === 'string' && v.length > 80) v = v.slice(0, 80) + '...';
-      return `${k}=${v}`;
+    const t = new Date(ev.ts*1000);
+    const kind = ev.kind.split('.')[0];
+    const msg = Object.entries(ev.data||{}).map(([k,v]) => {
+      if(k==='message') return `<span style="color:var(--yellow)">${v}</span>`;
+      if(typeof v==='string'&&v.length>60) v=v.slice(0,60)+'…';
+      return `<span style="color:var(--dim)">${k}=${v}</span>`;
     }).join('  ');
-
     return `<div class="log-entry">
-      <span class="log-time">${timeStr}</span>
-      <span class="log-kind ${kindClass}">${ev.kind}</span>
+      <span class="log-time">${t.toLocaleTimeString()}</span>
+      <span class="log-kind ${kind}">${ev.kind}</span>
       <span class="log-msg">${msg}</span>
     </div>`;
   }).join('');
-
   el.scrollTop = el.scrollHeight;
 }
 
-// ── Timer ──────────────────────────────────────────────────────────────────
-
+// ── Timer ───────────────────────────────────────────────────────────────────
 setInterval(() => {
-  if (state.startTime) {
-    const s = (Date.now() - state.startTime) / 1000;
-    document.getElementById('elapsed').textContent =
-      s < 60 ? Math.floor(s) + 's' : Math.floor(s/60) + 'm ' + Math.floor(s%60) + 's';
+  if(state.startTime) {
+    const s = (Date.now()-state.startTime)/1000;
+    document.getElementById('elapsed').textContent = s<60 ? Math.floor(s)+'s' : Math.floor(s/60)+'m '+Math.floor(s%60)+'s';
   }
-  // Re-render running timers
-  renderPhases();
   renderAgents();
   renderAgentContext();
+  renderPhases();
 }, 1000);
 
-// ── Init ───────────────────────────────────────────────────────────────────
+// ── Init ─────────────────────────────────────────────────────────────────────
+fetch('/api/config').then(r=>r.json()).then(cfg => {
+  document.getElementById('configGrid').innerHTML = [
+    ['Mode', cfg.llm_mode],
+    ['Heavy', cfg.heavy_model],
+    ['Light', cfg.light_model],
+    ['Context', cfg.context_size?.toLocaleString()+' tok'],
+    ['Severity', cfg.severity_threshold],
+  ].map(([k,v])=>`<div class="config-row"><span class="config-label">${k}</span><span class="config-value">${v||'—'}</span></div>`).join('');
+});
 
-fetch('/api/config')
-  .then(r => r.json())
-  .then(config => {
-    const grid = document.getElementById('configGrid');
-    const entries = [
-      ['Mode', config.llm_mode],
-      ['Heavy Model', config.heavy_model],
-      ['Light Model', config.light_model],
-      ['Context Size', config.context_size?.toLocaleString() + ' tokens'],
-      ['Base URL', config.base_url],
-      ['Min Severity', config.severity_threshold],
-    ];
-    grid.innerHTML = entries.map(([k,v]) =>
-      `<span class="config-label">${k}</span><span class="config-value">${v || '—'}</span>`
-    ).join('');
-  });
-
-// Load history first, then connect for live events
-fetch('/api/history')
-  .then(r => r.json())
-  .then(events => {
-    events.forEach(e => handleEvent(e));
-    connect();
-  })
-  .catch(() => connect());
-
+fetch('/api/history').then(r=>r.json()).then(evs=>{ evs.forEach(e=>handleEvent(e)); connect(); }).catch(()=>connect());
 </script>
 </body>
 </html>
