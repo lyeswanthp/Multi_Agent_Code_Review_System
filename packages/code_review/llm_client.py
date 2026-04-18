@@ -20,13 +20,13 @@ logger = logging.getLogger(__name__)
 _clients: dict[str, AsyncOpenAI] = {}
 
 # Read context window size from config (set LMSTUDIO_CONTEXT_SIZE in .env).
-# Default 8192 for safety with small local models; cloud APIs can handle 32K+.
-# Budget = context_chars * 0.45 for user msg, * 0.20 for system prompt,
-# leaving ~35% for completion tokens.
+# Default 4096 for safety with small local models; cloud APIs can handle 32K+.
+# Budget = context_chars * 0.55 for user msg, * 0.25 for system prompt,
+# leaving ~20% for completion tokens.
 def _get_budgets() -> tuple[int, int]:
     ctx_tokens = settings.lmstudio_context_size if settings.llm_mode == "local" else 32_000
     ctx_chars = ctx_tokens * 3  # ~3 chars per token (conservative)
-    return int(ctx_chars * 0.45), int(ctx_chars * 0.20)  # user_budget, sys_budget
+    return int(ctx_chars * 0.55), int(ctx_chars * 0.25)  # user_budget, sys_budget
 
 
 _USER_MSG_CHAR_BUDGET, _SYS_PROMPT_CHAR_BUDGET = _get_budgets()

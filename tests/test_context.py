@@ -6,107 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from code_review.context import (
-    _find_imports,
-    _resolve_js_import,
-    _resolve_py_import,
-    assemble_context,
-)
+from code_review.context import assemble_context
 from code_review.models import Finding, Severity, AgentName, ToolResults
 
 
-class TestPythonImportResolution:
-    def test_dotted_module(self, tmp_path):
-        (tmp_path / "pkg").mkdir()
-        (tmp_path / "pkg" / "sub.py").write_text("x = 1")
-        result = _resolve_py_import("pkg.sub", str(tmp_path))
-        assert result == "pkg/sub.py"
 
-    def test_package_init(self, tmp_path):
-        (tmp_path / "pkg").mkdir()
-        (tmp_path / "pkg" / "__init__.py").write_text("")
-        result = _resolve_py_import("pkg", str(tmp_path))
-        assert result == "pkg/__init__.py"
-
-    def test_nonexistent_module(self, tmp_path):
-        result = _resolve_py_import("nonexistent", str(tmp_path))
-        assert result is None
-
-    def test_stdlib_not_resolved(self, tmp_path):
-        """stdlib modules like 'os' have no file in repo — should return None."""
-        result = _resolve_py_import("os", str(tmp_path))
-        assert result is None
-
-
-class TestJSImportResolution:
-    def test_relative_import_with_extension(self, tmp_path):
-        (tmp_path / "utils.js").write_text("export const x = 1")
-        result = _resolve_js_import("./utils", "main.js", str(tmp_path))
-        assert result == "utils.js"
-
-    def test_relative_import_ts(self, tmp_path):
-        (tmp_path / "utils.ts").write_text("export const x = 1")
-        result = _resolve_js_import("./utils", "main.ts", str(tmp_path))
-        assert result == "utils.ts"
-
-    def test_index_file(self, tmp_path):
-        (tmp_path / "lib").mkdir()
-        (tmp_path / "lib" / "index.js").write_text("")
-        result = _resolve_js_import("./lib", "main.js", str(tmp_path))
-        assert result == "lib/index.js"
-
-    def test_node_modules_import_ignored(self, tmp_path):
-        result = _resolve_js_import("react", "main.js", str(tmp_path))
-        assert result is None
-
-    def test_scoped_npm_package_ignored(self, tmp_path):
-        result = _resolve_js_import("@tanstack/react-query", "main.tsx", str(tmp_path))
-        assert result is None
-
-    def test_parent_directory_import(self, tmp_path):
-        (tmp_path / "shared").mkdir()
-        (tmp_path / "shared" / "utils.js").write_text("")
-        (tmp_path / "src").mkdir()
-        result = _resolve_js_import("../shared/utils", "src/main.js", str(tmp_path))
-        assert result == "shared/utils.js"
-
-    def test_nonexistent_relative_import(self, tmp_path):
-        result = _resolve_js_import("./missing", "main.js", str(tmp_path))
-        assert result is None
-
-
-class TestFindImports:
-    def test_python_from_import(self, tmp_path):
-        (tmp_path / "utils.py").write_text("def helper(): pass")
-        content = "from utils import helper\nfrom os import path"
-        imports = _find_imports("main.py", content, str(tmp_path))
-        assert "utils.py" in imports
-        # os should not be resolved
-        assert not any("os" in i for i in imports)
-
-    def test_python_multiple_imports(self, tmp_path):
-        (tmp_path / "a.py").write_text("")
-        (tmp_path / "b.py").write_text("")
-        content = "import a\nimport b\nimport nonexistent"
-        imports = _find_imports("main.py", content, str(tmp_path))
-        assert "a.py" in imports
-        assert "b.py" in imports
-        assert len(imports) == 2  # nonexistent excluded
-
-    def test_js_mixed_imports(self, tmp_path):
-        (tmp_path / "utils.js").write_text("")
-        content = "import { x } from './utils'\nimport React from 'react'\nconst y = require('./utils')"
-        imports = _find_imports("main.js", content, str(tmp_path))
-        # Both ES import and require resolve to same file
-        assert "utils.js" in imports
-
-    def test_unsupported_file_type(self, tmp_path):
-        imports = _find_imports("data.csv", "import something", str(tmp_path))
-        assert imports == []
-
-    def test_empty_content(self, tmp_path):
-        imports = _find_imports("main.py", "", str(tmp_path))
-        assert imports == []
 
 
 class TestAssembleContext:
@@ -125,24 +29,7 @@ class TestAssembleContext:
         state = assemble_context(str(tmp_path), tool_results)
         assert "data.py" in state["file_contents"]
 
-    def test_import_chain_reads_imported_files(self, tmp_path):
-        (tmp_path / "main.py").write_text("import helper")
-        (tmp_path / "helper.py").write_text("def do_stuff(): pass")
-        tool_results = ToolResults(changed_files={"main.py"})
-        state = assemble_context(str(tmp_path), tool_results)
-        assert "main.py" in state["file_contents"]
-        assert "helper.py" in state["file_contents"]
-        assert "main.py" in state["import_context"]
-        assert "helper.py" in state["import_context"]["main.py"]
 
-    def test_duplicate_imports_read_once(self, tmp_path):
-        """If two changed files import the same module, it should appear once."""
-        (tmp_path / "a.py").write_text("import shared")
-        (tmp_path / "b.py").write_text("import shared")
-        (tmp_path / "shared.py").write_text("x = 1")
-        tool_results = ToolResults(changed_files={"a.py", "b.py"})
-        state = assemble_context(str(tmp_path), tool_results)
-        assert "shared.py" in state["file_contents"]
 
     def test_empty_tool_results(self, tmp_path):
         tool_results = ToolResults()

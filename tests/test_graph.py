@@ -28,7 +28,9 @@ def _make_state(**overrides):
         "overlap_files": [],
         "file_contents": {"test.py": "print('new')"},
         "focused_contents": {"test.py": "print('new')"},
-        "import_context": {},
+        "diff_context": {},
+        "external_skeletons": {},
+        "call_chain_text": "",
         "graph_context": {"nodes": [], "edges": []},
         "linter_findings": [{"code": "W001", "file": "test.py", "line": 1}],
         "semgrep_findings": [],
@@ -48,11 +50,10 @@ def _patch_all_agents(mock_fn):
 
     @contextmanager
     def _ctx():
-        with patch("code_review.agents.syntax.call_agent", side_effect=mock_fn), \
-             patch("code_review.agents.logic.call_agent", side_effect=mock_fn), \
-             patch("code_review.agents.security.call_agent", side_effect=mock_fn), \
+        with patch("code_review.agents.per_file.call_agent", side_effect=mock_fn), \
              patch("code_review.agents.git_history.call_agent", side_effect=mock_fn), \
-             patch("code_review.agents.orchestrator.call_agent", side_effect=mock_fn):
+             patch("code_review.agents.orchestrator.call_agent", side_effect=mock_fn), \
+             patch("code_review.config.settings.llm_mode", "remote"):
             yield
     return _ctx()
 
@@ -420,11 +421,11 @@ class TestSequentialGraphIntegration:
         graph = build_sequential_graph()
         # Only semgrep findings — prefilter enables only security
         state = _make_state(
-            semgrep_findings=[{"check_id": "test"}],
-            changed_files=[],
+            semgrep_findings=[{"check_id": "test", "file": "x.py"}],
+            changed_files=["x.py"],
             linter_findings=[],
             raw_diff="",
-            file_contents={},
+            file_contents={"x.py": "def foo(): pass"},
             focused_contents={},
             overlap_files=[],
         )
@@ -432,7 +433,7 @@ class TestSequentialGraphIntegration:
             await graph.ainvoke(state)
 
         assert "syntax" not in call_log
-        assert "logic" not in call_log
+        assert "logic" in call_log
         assert "security" in call_log
 
 

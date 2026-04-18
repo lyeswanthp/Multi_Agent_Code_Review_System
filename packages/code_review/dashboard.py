@@ -7,24 +7,12 @@ import time
 from collections import deque
 from threading import Lock
 
-from rich.box import HEAVY
 from rich.columns import Columns
 from rich.console import Group
 from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
-
-
-# ── Colour palette ────────────────────────────────────────────────────────────
-_C  = "[bold]"
-_BL = f"{_C}#38bdf8]"   # blue   – running
-_GR = f"{_C}#34d399]"   # green  – done
-_YE = f"{_C}#fbbf24]"   # yellow – warning
-_RE = f"{_C}#f87171]"   # red    – error/failed
-_DI = "[dim]"            # dim    – pending/skipped
-_CY = f"{_C}#22d3ee]"   # cyan   – accent
-_PU = f"{_C}#c084fc]"   # purple – accent
 
 
 # ── Log capture ──────────────────────────────────────────────────────────────
@@ -39,44 +27,9 @@ class _DashboardLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         msg = self.format(record)
-        color = _RE if record.levelno >= logging.ERROR else _YE
+        color = "red" if record.levelno >= logging.ERROR else "yellow"
         with self._lock:
-            self._buf.append(f"[{color[7:-1]}]{msg}[/]")
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _phase_icon(state: str) -> str:
-    icons = {
-        "running": Spinner("dots12", text=_BL),
-        "done":    f"{_GR}[/]✓",
-        "failed":  f"{_RE}[/]✗",
-        "pending": f"{_DI}[/]○",
-    }
-    return icons.get(state, f"{_DI}[/]○")
-
-
-def _agent_icon(state: str) -> str:
-    icons = {
-        "running": f"{_BL}[/]⟳",
-        "done":    f"{_GR}[/]✓",
-        "failed":  f"{_RE}[/]✗",
-        "skipped": f"{_DI}[/]–",
-        "pending": f"{_DI}[/]○",
-    }
-    return icons.get(state, f"{_DI}[/]○")
-
-
-def _badge(state: str) -> str:
-    styles = {
-        "running": "bold #38bdf8",
-        "done":    "bold #34d399",
-        "failed":  "bold #f87171",
-        "skipped": "dim",
-        "pending": "dim",
-    }
-    style = styles.get(state, "dim")
-    return f"[{style}]{state.upper()}[/]"
+            self._buf.append(f"[{color}]{msg}[/]")
 
 
 # ── Dashboard state ───────────────────────────────────────────────────────────
@@ -96,17 +49,18 @@ class ReviewDashboard:
         self._lock = Lock()
         self._start = time.monotonic()
 
-        # Phase tracking
+        # Phase tracking: state ∈ {pending, running, done, failed}
         self._phase_state: dict[str, str] = {p: "pending" for p in self._PHASES}
-        self._phase_detail: dict[str, str] = {}
+        self._phase_detail: dict[str, str] = {}  # short info string per phase
 
         # Agent tracking
-        self._agent_state: dict[str, str] = {}
-        self._agent_start: dict[str, float] = {}
+        self._agent_state: dict[str, str] = {}   # agent → state
+        self._agent_start: dict[str, float] = {} # agent → monotonic start
 
-        # Log buffer
-        self._logs: deque[str] = deque(maxlen=12)
+        # Log buffer (last 10 messages)
+        self._logs: deque[str] = deque(maxlen=10)
 
+        # Install log handler
         self._handler = _DashboardLogHandler(self._logs, self._lock)
         self._handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
         logging.getLogger().addHandler(self._handler)
@@ -157,120 +111,73 @@ class ReviewDashboard:
         with self._lock:
             elapsed = time.monotonic() - self._start
             parts = [
-                _make_header(elapsed),
                 self._render_phases(),
                 self._render_agents(),
                 self._render_logs(),
+                Text(f"  [dim]Elapsed: {elapsed:.0f}s[/]", end=""),
             ]
         return Group(*parts)
 
     def _render_phases(self) -> Panel:
-        """Render pipeline phases as a horizontal step track."""
         rows = []
-        for i, phase in enumerate(self._PHASES):
+        for phase in self._PHASES:
             state = self._phase_state[phase]
             label = self._PHASE_LABELS[phase]
             detail = self._phase_detail.get(phase, "")
 
-            icon = _phase_icon(state)
-            badge = _badge(state)
-            detail_str = f" [dim]({detail})[/]" if detail else ""
+            if state == "running":
+                icon = Spinner("dots", style="bold blue")
+                status = Text("running", style="bold blue")
+            elif state == "done":
+                icon = Text("✓", style="bold green")
+                status = Text("done", style="green")
+            elif state == "failed":
+                icon = Text("✗", style="bold red")
+                status = Text("failed", style="red")
+            else:
+                icon = Text("○", style="dim")
+                status = Text("pending", style="dim")
 
-            connector = ""
-            if i < len(self._PHASES) - 1:
-                conn_char = "--" if state == "done" else ".."
-                connector = f" {conn_char} "
+            row = Text()
+            row.append(f"  {label:<22}")
+            rows.append(Columns([icon, status, Text(f"[dim]{detail}[/]", end="")], padding=(0, 1)))
 
-            rows.append(
-                Text.from_markup(
-                    f"  {icon} [bold]{label}[/]  {badge}{detail_str}{connector}",
-                    style="",
-                )
-            )
-
-        return Panel(
-            Group(*rows),
-            title="[bold #38bdf8]▸ Pipeline[/]",
-            border_style="#1e3a5f",
-            box=HEAVY,
-            padding=(0, 1),
-        )
+        return Panel(Group(*rows), title="[bold]Pipeline[/]", border_style="blue", padding=(0, 1))
 
     def _render_agents(self) -> Panel:
-        """Render agents as a wrapped column of mini-cards."""
         if not self._agent_state:
-            return Panel(
-                Text.from_markup(f"  {_DI}Waiting for agents...[/]"),
-                title="[bold #38bdf8]▸ AI Agents[/]",
-                border_style="#1e3a5f",
-                box=HEAVY,
-                padding=(0, 1),
-            )
+            return Panel(Text("  [dim]Waiting for agents...[/]"), title="[bold]Agents[/]", border_style="blue", padding=(0, 1))
+
+        table = Table.grid(padding=(0, 3))
+        table.add_column(width=14)
+        table.add_column(width=10)
+        table.add_column(width=10)
 
         order = [a for a in self._AGENT_ORDER if a in self._agent_state]
         order += [a for a in self._agent_state if a not in order]
 
-        cards: list[Text] = []
         for agent in order:
             state = self._agent_state[agent]
-            icon = _agent_icon(state)
-            badge = _badge(state)
-            elapsed = ""
             if state == "running":
-                e = time.monotonic() - self._agent_start.get(agent, time.monotonic())
-                elapsed = f" {_DI}{e:.0f}s[/]"
+                elapsed = time.monotonic() - self._agent_start.get(agent, time.monotonic())
+                status = Text(f"running {elapsed:.0f}s", style="bold blue")
+                icon = "⟳"
+            elif state == "done":
+                icon, status = "✓", Text("done", style="green")
+            elif state == "failed":
+                icon, status = "✗", Text("failed", style="red")
+            elif state == "skipped":
+                icon, status = "–", Text("skipped", style="dim")
+            else:
+                icon, status = "○", Text("pending", style="dim")
 
-            line = Text.from_markup(f"  {icon} {_C}{agent}[/]  {badge}{elapsed}")
-            cards.append(line)
+            table.add_row(f"  {icon} [bold]{agent}[/]", status)
 
-        return Panel(
-            Columns(cards, padding=(0, 2), equal=True),
-            title=f"[bold #38bdf8]▸ AI Agents[/] [dim]({len(order)})[/]",
-            border_style="#1e3a5f",
-            box=HEAVY,
-            padding=(0, 1),
-        )
+        return Panel(table, title="[bold]Agents[/]", border_style="blue", padding=(0, 1))
 
     def _render_logs(self) -> Panel:
-        """Render recent log/warning messages."""
         if not self._logs:
-            content = Text.from_markup(f"  {_DI}No warnings or errors[/]")
+            content = Text("  [dim]No warnings yet[/]")
         else:
-            lines = [Text.from_markup(f"  {line}") for line in self._logs]
-            content = Group(*lines)
-
-        return Panel(
-            content,
-            title="[bold #38bdf8]▸ Logs[/]",
-            border_style="#1e3a5f",
-            box=HEAVY,
-            padding=(0, 1),
-        )
-
-
-def _make_header(elapsed: float) -> Panel:
-    """Top banner with title, elapsed time, and status."""
-    if elapsed < 60:
-        elapsed_str = f"{_C}#fbbf24]{elapsed:.0f}s[/]"
-    else:
-        elapsed_str = f"{_C}#fbbf24]{int(elapsed//60)}m {int(elapsed%60)}s[/]"
-
-    left = Text.from_markup(
-        f"  [bold #e2e8f0]Code Review[/]  [dim]Multi-Agent AI Review[/]"
-    )
-    right = Text.from_markup(
-        f"  {_GR}[/]● [bold]LIVE[/]    {_DI}Elapsed:[/] {elapsed_str}"
-    )
-
-    table = Table(box=None, show_header=False, padding=0)
-    table.add_column(justify="left")
-    table.add_column(justify="right")
-    table.add_row(left, right)
-
-    return Panel(
-        table,
-        border_style="#1e3a5f",
-        box=HEAVY,
-        padding=(0, 1),
-        style="on #0d1117",
-    )
+            content = Group(*[Text(f"  {line}") for line in self._logs])
+        return Panel(content, title="[bold]Logs[/]", border_style="dim", padding=(0, 1))

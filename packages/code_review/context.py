@@ -26,31 +26,6 @@ _HUNK_CONTEXT_LINES = 8
 # Unified diff hunk header: @@ -start,count +start,count @@
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
 
-# Import patterns (1-level deep, regex-based)
-PY_IMPORT_RE = re.compile(
-    r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.MULTILINE
-)
-
-
-def _resolve_py_import(module: str, repo_root: str) -> str | None:
-    rel = module.replace(".", os.sep)
-    for suffix in [".py", "/__init__.py"]:
-        candidate = os.path.join(repo_root, rel + suffix)
-        if os.path.isfile(candidate):
-            return os.path.relpath(candidate, repo_root).replace(os.sep, "/")
-    return None
-
-
-def _find_imports(filepath: str, content: str, repo_root: str) -> list[str]:
-    imports = []
-    if filepath.endswith(".py"):
-        for match in PY_IMPORT_RE.finditer(content):
-            module = match.group(1) or match.group(2)
-            resolved = _resolve_py_import(module, repo_root)
-            if resolved:
-                imports.append(resolved)
-    return imports
-
 
 def _extract_changed_lines(raw_diff: str) -> dict[str, set[int]]:
     """Parse unified diff to find which lines changed in each file.
@@ -254,26 +229,57 @@ def assemble_context(
         bus.emit("log.warning", logger="context",
                  message=f"Diff hunks: {total_full} → {total_focused} chars ({reduction}% reduction)")
 
-    # Step 3: Resolve imports (light — only from changed files, no recursive reads)
-    import_context: dict[str, list[str]] = {}
-    for filepath, content in file_contents.items():
-        imports = _find_imports(filepath, content, repo_root)
-        if imports:
-            import_context[filepath] = imports
-
-    # Step 4: Build knowledge graph — skip in local mode (too slow for the benefit)
-    from code_review.config import settings
+    # Step 3 & 4: Global Knowledge Graph & Topological RAG
+    from code_review.tools.runner import scan_all_files
+    from code_review.skeleton import extract_skeleton
+    
+    external_skeletons: dict[str, str] = {}
     graph_context: dict = {"nodes": [], "edges": []}
-    if settings.llm_mode != "local" and file_contents:
+    call_chain_text: str = ""
+    
+    if file_contents:
+        all_files = scan_all_files(repo_root)
+        all_file_contents: dict[str, str] = {}
+        
+        # Read the entire codebase to build the global graph
+        for filepath in all_files:
+            if filepath in file_contents:
+                all_file_contents[filepath] = file_contents[filepath]
+            else:
+                abs_path = os.path.join(repo_root, filepath)
+                if os.path.isfile(abs_path):
+                    try:
+                        all_file_contents[filepath] = Path(abs_path).read_text(encoding="utf-8", errors="replace")
+                    except Exception:
+                        pass
         try:
             from code_review.knowledge_graph import (
                 build_knowledge_graph,
                 get_affected_subgraph,
+                get_call_chain_context
             )
-            kg = build_knowledge_graph(file_contents)
+            # 1. Build Repo-Scope Graph
+            kg = build_knowledge_graph(all_file_contents)
+            
+            # 2. Extract Subgraph starting from changed files (2-hops)
             graph_context = get_affected_subgraph(kg, changed_files, max_hops=2)
+            call_chain_text = get_call_chain_context(kg, changed_files)
+            
+            # 3. Topological RAG: fetch external skeleton files present in the subgraph nodes
+            files_in_subgraph = set()
+            for node in graph_context.get("nodes", []):
+                fpath = node.get("file")
+                if fpath and fpath not in file_contents:
+                    files_in_subgraph.add(fpath)
+                    
+            for imp in files_in_subgraph:
+                if imp in all_file_contents:
+                    skeleton = extract_skeleton(imp, all_file_contents[imp])
+                    if len(skeleton.strip()) > 5:
+                        external_skeletons[imp] = skeleton
+                        bus.emit("file.loaded", path=f"{imp} (skeleton)", chars=len(skeleton))
         except Exception as e:
-            logger.warning("Knowledge graph build failed (non-fatal): %s", e)
+            logger.warning("Topological RAG / Knowledge graph build failed: %s", e)
 
     # Step 5: Get overlap diffs
     overlap_diffs: dict[str, str] = {}
@@ -292,7 +298,8 @@ def assemble_context(
         file_contents=file_contents,
         focused_contents=focused_contents,
         diff_context=diff_context,
-        import_context=import_context,
+        external_skeletons=external_skeletons,
+        call_chain_text=call_chain_text,
         graph_context=graph_context,
         linter_findings=linter_findings,
         semgrep_findings=semgrep_findings,

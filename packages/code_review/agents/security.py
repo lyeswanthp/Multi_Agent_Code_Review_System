@@ -36,6 +36,9 @@ async def run_security_agent(state: ReviewState) -> dict:
     file_contents = state["file_contents"]
 
     diff_context = state.get("diff_context", {})
+    external_skeletons = state.get("external_skeletons", {})
+    call_chain_text = state.get("call_chain_text", "")
+    
     contents = focused_contents if focused_contents else file_contents
     if not semgrep and not bandit and not contents:
         return {"findings": []}
@@ -58,11 +61,22 @@ async def run_security_agent(state: ReviewState) -> dict:
         extra = sast_by_file.get(filepath, "")
         if extra:
             parts.append(f"## SAST findings for this file:\n{extra}")
+            
+        if call_chain_text:
+            parts.append(call_chain_text)
+            
+        relevant_skels = []
+        for imp, skel in external_skeletons.items():
+            relevant_skels.append(f"### {imp}\n{skel}")
+        if relevant_skels:
+            parts.append("## External Dependencies (Skeletons):\n" + "\n\n".join(relevant_skels) + "\n")
+            
         dc = diff_context.get(filepath)
         if dc and dc.get("diff"):
             parts.append(f"## Changes (old → new):\n```diff\n{dc['diff']}\n```")
+            
         parts.append(content)
-        files_with_context[filepath] = "\n".join(parts)
+        files_with_context[filepath] = "\n\n".join(parts)
 
     all_findings = await run_per_file(
         agent_name="security",

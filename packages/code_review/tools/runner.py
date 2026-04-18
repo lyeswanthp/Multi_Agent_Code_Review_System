@@ -45,7 +45,7 @@ def _has_js_files(path: str) -> bool:
     return False
 
 
-def _scan_all_files(path: str) -> set[str]:
+def scan_all_files(path: str) -> set[str]:
     """Walk the directory and return relative paths of all source files."""
     found: set[str] = set()
     root = Path(path).resolve()
@@ -122,12 +122,12 @@ async def run_all_tools(
                      message=f"Uncommitted changes detected: {len(changed_files)} files")
         else:
             logger.info("No uncommitted changes; falling back to full scan")
-            changed_files = _scan_all_files(path)
+            changed_files = scan_all_files(path)
             scan_mode = "full"
     else:
         # No git context at all
         logger.info("No git repo; scanning all source files in %s", path)
-        changed_files = _scan_all_files(path)
+        changed_files = scan_all_files(path)
 
     # Build list of individual file paths to pass to tools (only changed files)
     repo_root = Path(path).resolve()

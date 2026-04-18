@@ -1,6 +1,7 @@
+from __future__ import annotations
+from typing import Optional
 """CLI entry point — Typer app that wires Tier 1 -> Tier 2 -> Tier 3 -> Output."""
 
-from __future__ import annotations
 
 import asyncio
 import json
@@ -27,8 +28,8 @@ console = Console()
 
 async def _run_review(
     path: str,
-    repo_path: str | None = None,
-    commit_sha: str | None = None,
+    repo_path: Optional[str] = None,
+    commit_sha: Optional[str] = None,
     severity: Severity = Severity.MEDIUM,
 ) -> ReviewResult:
     """Execute the full review pipeline."""
@@ -109,15 +110,15 @@ async def _run_review(
 @app.command()
 def review(
     path: str = typer.Argument(".", help="Path to review"),
-    repo: str | None = typer.Option(None, "--repo", "-r", help="Git repo path"),
-    sha: str | None = typer.Option(None, "--sha", "-s", help="Commit SHA to review"),
+    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Git repo path"),
+    sha: Optional[str] = typer.Option(None, "--sha", "-s", help="Commit SHA to review"),
     severity: str = typer.Option("medium", "--severity", "-S",
                                  help="Minimum severity: low, medium, high, critical"),
     format: str = typer.Option("terminal", "--format", "-f",
                                help="Output format: terminal, json, github"),
-    gh_owner: str | None = typer.Option(None, "--gh-owner", help="GitHub repo owner"),
-    gh_repo: str | None = typer.Option(None, "--gh-repo", help="GitHub repo name"),
-    gh_pr: int | None = typer.Option(None, "--gh-pr", help="GitHub PR number"),
+    gh_owner: Optional[str] = typer.Option(None, "--gh-owner", help="GitHub repo owner"),
+    gh_repo: Optional[str] = typer.Option(None, "--gh-repo", help="GitHub repo name"),
+    gh_pr: Optional[int] = typer.Option(None, "--gh-pr", help="GitHub PR number"),
     dashboard_port: int = typer.Option(9120, "--dashboard-port", "-d",
                                        help="Web dashboard port (0 to disable)"),
 ) -> None:

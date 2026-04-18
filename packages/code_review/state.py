@@ -12,7 +12,7 @@ class ReviewState(TypedDict):
     """Shared state passed through the LangGraph review pipeline.
 
     - Tier 1 populates: raw_diff, changed_files, overlap_files, linter_findings
-    - Tier 2 populates: file_contents, import_context
+    - Tier 2 populates: file_contents, external_skeletons, call_chain_text
     - Tier 3 agents READ state and APPEND to findings via the reducer
     - Orchestrator reads merged findings, writes summary
     """
@@ -23,7 +23,8 @@ class ReviewState(TypedDict):
     overlap_files: list[str]
     file_contents: dict[str, str]
     focused_contents: dict[str, str]  # AST-extracted relevant blocks only
-    import_context: dict[str, list[str]]
+    external_skeletons: dict[str, str]  # Mapped imported files to their AST skeletons
+    call_chain_text: str  # Summarized text output of topological context for LLM injection
 
     # Knowledge graph context (written by Tier 2, read by Logic/Security agents)
     graph_context: dict  # compact subgraph dict {nodes, edges} from knowledge_graph.py

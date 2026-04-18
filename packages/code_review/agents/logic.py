@@ -33,19 +33,32 @@ async def run_logic_agent(state: ReviewState) -> dict:
     file_contents = state["file_contents"]
 
     diff_context = state.get("diff_context", {})
+    external_skeletons = state.get("external_skeletons", {})
+    call_chain_text = state.get("call_chain_text", "")
+    
     contents = focused_contents if focused_contents else file_contents
     if not contents:
         return {"findings": []}
 
-    # Prepend unified diff to each file so the model sees old vs new
+    # Prepend unified diff and skeletons to each file so the model sees old vs new and external context
     files_with_diff: dict[str, str] = {}
     for filepath, content in contents.items():
+        prefix = ""
+        
+        if call_chain_text:
+            prefix += f"{call_chain_text}\n\n"
+            
+        relevant_skels = []
+        for imp, skel in external_skeletons.items():
+            relevant_skels.append(f"### {imp}\n{skel}")
+        if relevant_skels:
+            prefix += "## External Dependencies (Skeletons):\n" + "\n\n".join(relevant_skels) + "\n\n"
+
         dc = diff_context.get(filepath)
         if dc and dc.get("diff"):
-            prefix = f"## Changes (old → new):\n```diff\n{dc['diff']}\n```\n\n## Current code:\n"
-            files_with_diff[filepath] = prefix + content
-        else:
-            files_with_diff[filepath] = content
+            prefix += f"## Changes (old → new):\n```diff\n{dc['diff']}\n```\n\n## Current code:\n"
+            
+        files_with_diff[filepath] = prefix + content
 
     bus.emit("agent.files", agent="logic", files=sorted(files_with_diff.keys()),
              chars={f: len(c) for f, c in files_with_diff.items()})

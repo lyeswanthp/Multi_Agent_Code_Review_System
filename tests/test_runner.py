@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from code_review.models import AgentName, Finding, Severity
-from code_review.tools.runner import _scan_all_files, run_all_tools
+from code_review.tools.runner import scan_all_files, run_all_tools
 
 
 class TestScanAllFiles:
@@ -16,7 +16,7 @@ class TestScanAllFiles:
         (tmp_path / "app.py").write_text("x=1")
         (tmp_path / "test.js").write_text("x=1")
         (tmp_path / "data.csv").write_text("a,b")
-        found = _scan_all_files(str(tmp_path))
+        found = scan_all_files(str(tmp_path))
         assert "app.py" in found
         assert "test.js" in found
         assert "data.csv" not in found
@@ -26,7 +26,7 @@ class TestScanAllFiles:
         nm.mkdir(parents=True)
         (nm / "index.js").write_text("")
         (tmp_path / "app.js").write_text("")
-        found = _scan_all_files(str(tmp_path))
+        found = scan_all_files(str(tmp_path))
         assert "app.js" in found
         assert not any("node_modules" in f for f in found)
 
@@ -35,7 +35,7 @@ class TestScanAllFiles:
         venv.mkdir(parents=True)
         (venv / "site.py").write_text("")
         (tmp_path / "main.py").write_text("")
-        found = _scan_all_files(str(tmp_path))
+        found = scan_all_files(str(tmp_path))
         assert "main.py" in found
         assert not any(".venv" in f for f in found)
 
@@ -43,7 +43,7 @@ class TestScanAllFiles:
         git = tmp_path / ".git" / "objects"
         git.mkdir(parents=True)
         (tmp_path / "main.py").write_text("")
-        found = _scan_all_files(str(tmp_path))
+        found = scan_all_files(str(tmp_path))
         assert not any(".git" in f for f in found)
 
     def test_nested_directories(self, tmp_path):
@@ -51,18 +51,18 @@ class TestScanAllFiles:
         src.mkdir(parents=True)
         (src / "App.tsx").write_text("")
         (src / "style.css").write_text("")
-        found = _scan_all_files(str(tmp_path))
+        found = scan_all_files(str(tmp_path))
         assert any("App.tsx" in f for f in found)
         assert not any("style.css" in f for f in found)
 
     def test_empty_directory(self, tmp_path):
-        found = _scan_all_files(str(tmp_path))
+        found = scan_all_files(str(tmp_path))
         assert found == set()
 
     def test_all_supported_extensions(self, tmp_path):
         for ext in [".py", ".js", ".ts", ".jsx", ".tsx"]:
             (tmp_path / f"file{ext}").write_text("")
-        found = _scan_all_files(str(tmp_path))
+        found = scan_all_files(str(tmp_path))
         assert len(found) == 5
 
 
@@ -127,7 +127,9 @@ class TestRunAllTools:
         with patch("code_review.tools.runner.run_ruff", new_callable=AsyncMock, return_value=[rf]), \
              patch("code_review.tools.runner.run_semgrep", new_callable=AsyncMock, return_value=[sf]), \
              patch("code_review.tools.runner.run_bandit", new_callable=AsyncMock, return_value=[bf]), \
-             patch("code_review.tools.runner.run_eslint", new_callable=AsyncMock, return_value=[ef]):
+             patch("code_review.tools.runner.run_eslint", new_callable=AsyncMock, return_value=[ef]), \
+             patch("code_review.tools.runner._has_js_files", return_value=True), \
+             patch("code_review.tools.runner.scan_all_files", return_value={"a.py", "a.js"}):
             result = await run_all_tools("/tmp")
 
         assert len(result.all_findings) == 4
@@ -141,7 +143,9 @@ class TestRunAllTools:
         with patch("code_review.tools.runner.run_ruff", new_callable=AsyncMock, return_value=[]), \
              patch("code_review.tools.runner.run_semgrep", new_callable=AsyncMock, return_value=[]), \
              patch("code_review.tools.runner.run_bandit", new_callable=AsyncMock, return_value=[]), \
-             patch("code_review.tools.runner.run_eslint", new_callable=AsyncMock, return_value=[]):
+             patch("code_review.tools.runner.run_eslint", new_callable=AsyncMock, return_value=[]), \
+             patch("code_review.tools.runner._has_js_files", return_value=True), \
+             patch("code_review.tools.runner.scan_all_files", return_value={"a.py", "a.js"}):
             result = await run_all_tools("/tmp")
 
         assert result.all_findings == []

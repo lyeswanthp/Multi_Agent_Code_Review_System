@@ -24,7 +24,9 @@ def _make_state(**overrides):
         "overlap_files": [],
         "file_contents": {},
         "focused_contents": {},
-        "import_context": {},
+        "diff_context": {},
+        "external_skeletons": {},
+        "call_chain_text": "",
         "graph_context": {"nodes": [], "edges": []},
         "linter_findings": [],
         "semgrep_findings": [],
@@ -47,19 +49,19 @@ _AGENT_CONFIGS = [
     # (run_fn, patch_target, state_factory, agent_name)
     (
         run_syntax_agent,
-        "code_review.agents.syntax.call_agent",
+        "code_review.agents.per_file.call_agent",
         lambda: _make_state(linter_findings=[{"code": "F401", "file": "a.py"}]),
         AgentName.SYNTAX,
     ),
     (
         run_logic_agent,
-        "code_review.agents.logic.call_agent",
+        "code_review.agents.per_file.call_agent",
         lambda: _make_state(raw_diff="--- a/x.py\n+++ b/x.py", file_contents={"x.py": "x=1"}),
         AgentName.LOGIC,
     ),
     (
         run_security_agent,
-        "code_review.agents.security.call_agent",
+        "code_review.agents.per_file.call_agent",
         lambda: _make_state(semgrep_findings=[{"check_id": "sqli"}], file_contents={"s.py": "q=f'{x}'"}),
         AgentName.SECURITY,
     ),
@@ -100,12 +102,11 @@ class TestAgentFailureModes:
     @pytest.mark.parametrize("run_fn,target,state_fn,agent", _AGENT_CONFIGS, ids=lambda x: getattr(x, "value", ""))
     async def test_json_object_instead_of_array(self, run_fn, target, state_fn, agent):
         """LLM returns {findings: [...]} instead of [...] — agents expect array.
-        Currently agents crash on this (iterating dict keys) — this test documents
-        the known limitation. When agents are hardened, change to assert no crash."""
+        Agents have been hardened to extract arrays or wrap dicts without crashing."""
         bad = json.dumps({"findings": [{"severity": "high", "file": "a.py", "line": 1, "message": "x"}]})
         with patch(target, new_callable=AsyncMock, return_value=bad):
-            with pytest.raises((AttributeError, TypeError)):
-                await run_fn(state_fn())
+            result = await run_fn(state_fn())
+            assert isinstance(result["findings"], list)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("run_fn,target,state_fn,agent", _AGENT_CONFIGS, ids=lambda x: getattr(x, "value", ""))
@@ -153,7 +154,7 @@ class TestAgentSkipConditions:
     @pytest.mark.asyncio
     async def test_syntax_skips_without_linter_findings(self):
         mock = AsyncMock()
-        with patch("code_review.agents.syntax.call_agent", mock):
+        with patch("code_review.agents.per_file.call_agent", mock):
             result = await run_syntax_agent(_make_state())
         mock.assert_not_called()
         assert result["findings"] == []
@@ -161,7 +162,7 @@ class TestAgentSkipConditions:
     @pytest.mark.asyncio
     async def test_logic_skips_without_diff_or_files(self):
         mock = AsyncMock()
-        with patch("code_review.agents.logic.call_agent", mock):
+        with patch("code_review.agents.per_file.call_agent", mock):
             result = await run_logic_agent(_make_state())
         mock.assert_not_called()
         assert result["findings"] == []
@@ -169,7 +170,7 @@ class TestAgentSkipConditions:
     @pytest.mark.asyncio
     async def test_security_skips_without_any_data(self):
         mock = AsyncMock()
-        with patch("code_review.agents.security.call_agent", mock):
+        with patch("code_review.agents.per_file.call_agent", mock):
             result = await run_security_agent(_make_state())
         mock.assert_not_called()
         assert result["findings"] == []
@@ -244,25 +245,25 @@ class TestSyntaxCriticalFlag:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("severity,expected", [
         ("critical", True),
-        ("high", True),
+        ("high", False),
         ("medium", False),
         ("low", False),
     ])
     async def test_critical_flag_per_severity(self, severity, expected):
         resp = json.dumps([{"severity": severity, "file": "a.py", "line": 1, "message": "x", "suggestion": "y"}])
         state = _make_state(linter_findings=[{"code": "F401"}])
-        with patch("code_review.agents.syntax.call_agent", new_callable=AsyncMock, return_value=resp):
+        with patch("code_review.agents.per_file.call_agent", new_callable=AsyncMock, return_value=resp):
             result = await run_syntax_agent(state)
         assert result["syntax_has_critical"] is expected
 
     @pytest.mark.asyncio
-    async def test_mixed_severities_high_wins(self):
+    async def test_mixed_severities_critical_wins(self):
         resp = json.dumps([
             {"severity": "low", "file": "a.py", "line": 1, "message": "x", "suggestion": "y"},
-            {"severity": "high", "file": "a.py", "line": 2, "message": "z", "suggestion": "w"},
+            {"severity": "critical", "file": "a.py", "line": 2, "message": "z", "suggestion": "w"},
         ])
         state = _make_state(linter_findings=[{"code": "F401"}])
-        with patch("code_review.agents.syntax.call_agent", new_callable=AsyncMock, return_value=resp):
+        with patch("code_review.agents.per_file.call_agent", new_callable=AsyncMock, return_value=resp):
             result = await run_syntax_agent(state)
         assert result["syntax_has_critical"] is True
         assert len(result["findings"]) == 2
@@ -284,7 +285,7 @@ class TestSyntaxAgentMultipleFindings:
             for i in range(20)
         ]
         state = _make_state(linter_findings=[{"code": "F401"}])
-        with patch("code_review.agents.syntax.call_agent", new_callable=AsyncMock, return_value=json.dumps(items)):
+        with patch("code_review.agents.per_file.call_agent", new_callable=AsyncMock, return_value=json.dumps(items)):
             result = await run_syntax_agent(state)
         assert len(result["findings"]) == 20
         assert all(f.agent == AgentName.SYNTAX for f in result["findings"])
@@ -308,7 +309,7 @@ class TestLogicAgentContextBuilding:
             file_contents={"a.py": "FULL CONTENT SHOULD NOT APPEAR"},
             focused_contents={"a.py": "FOCUSED CONTENT"},
         )
-        with patch("code_review.agents.logic.call_agent", mock):
+        with patch("code_review.agents.per_file.call_agent", mock):
             await run_logic_agent(state)
         # Verify the user message sent to LLM contains focused, not full
         user_msg = mock.call_args[1]["messages"][1]["content"] if mock.call_args[1] else mock.call_args[0][1][1]["content"]
@@ -324,7 +325,7 @@ class TestLogicAgentContextBuilding:
             file_contents={"a.py": "FULL CONTENT HERE"},
             focused_contents={},
         )
-        with patch("code_review.agents.logic.call_agent", mock):
+        with patch("code_review.agents.per_file.call_agent", mock):
             await run_logic_agent(state)
         user_msg = mock.call_args[1]["messages"][1]["content"] if mock.call_args[1] else mock.call_args[0][1][1]["content"]
         assert "FULL CONTENT HERE" in user_msg
@@ -345,7 +346,7 @@ class TestSecurityAgentDataPaths:
         resp = json.dumps([])
         mock = AsyncMock(return_value=resp)
         state = _make_state(file_contents={"app.py": "import os"})
-        with patch("code_review.agents.security.call_agent", mock):
+        with patch("code_review.agents.per_file.call_agent", mock):
             await run_security_agent(state)
         mock.assert_called_once()
 
@@ -353,8 +354,8 @@ class TestSecurityAgentDataPaths:
     async def test_runs_with_only_bandit_findings(self):
         resp = json.dumps([{"severity": "high", "file": "x.py", "line": 1, "message": "vuln", "suggestion": "fix"}])
         mock = AsyncMock(return_value=resp)
-        state = _make_state(bandit_findings=[{"test_id": "B101"}])
-        with patch("code_review.agents.security.call_agent", mock):
+        state = _make_state(bandit_findings=[{"test_id": "B101", "file": "x.py"}], file_contents={"x.py": "print('hello')"})
+        with patch("code_review.agents.per_file.call_agent", mock):
             result = await run_security_agent(state)
         mock.assert_called_once()
         assert len(result["findings"]) == 1
@@ -369,19 +370,21 @@ class TestOrchestratorEdgeCases:
         bad = json.dumps([{"severity": "high", "file": "a.py", "line": 1, "message": "x"}])
         finding = Finding(severity=Severity.HIGH, file="a.py", line=1, message="x", agent=AgentName.LOGIC)
         state = _make_state(findings=[finding])
-        with patch("code_review.agents.orchestrator.call_agent", new_callable=AsyncMock, return_value=bad):
+        with patch("code_review.config.settings.llm_mode", "remote"), \
+             patch("code_review.agents.orchestrator.call_agent", new_callable=AsyncMock, return_value=bad):
             result = await run_orchestrator(state)
-        assert "unstructured" in result["summary"].lower()
+        assert "Found 1 issue(s)" in result["summary"]
 
     @pytest.mark.asyncio
     async def test_llm_returns_object_without_summary_key(self):
         resp = json.dumps({"findings": [{"severity": "high", "file": "a.py", "line": 1, "message": "x", "suggestion": "y", "category": "logic"}]})
         finding = Finding(severity=Severity.HIGH, file="a.py", line=1, message="x", agent=AgentName.LOGIC)
         state = _make_state(findings=[finding])
-        with patch("code_review.agents.orchestrator.call_agent", new_callable=AsyncMock, return_value=resp):
+        with patch("code_review.config.settings.llm_mode", "remote"), \
+             patch("code_review.agents.orchestrator.call_agent", new_callable=AsyncMock, return_value=resp):
             result = await run_orchestrator(state)
-        # Should still parse findings even without summary
-        assert result["summary"] == ""
+        # Should fall back to deterministic summary when "summary" is missing
+        assert "Found 1 issue(s)" in result["summary"]
         assert len(result["findings"]) == 1
 
     @pytest.mark.asyncio
@@ -389,7 +392,8 @@ class TestOrchestratorEdgeCases:
         resp = json.dumps({"findings": [], "summary": "All issues were false positives."})
         finding = Finding(severity=Severity.LOW, file="a.py", line=1, message="x", agent=AgentName.SYNTAX)
         state = _make_state(findings=[finding])
-        with patch("code_review.agents.orchestrator.call_agent", new_callable=AsyncMock, return_value=resp):
+        with patch("code_review.config.settings.llm_mode", "remote"), \
+             patch("code_review.agents.orchestrator.call_agent", new_callable=AsyncMock, return_value=resp):
             result = await run_orchestrator(state)
         assert result["summary"] == "All issues were false positives."
         assert "findings" not in result or result.get("findings", []) == []
@@ -406,7 +410,8 @@ class TestOrchestratorEdgeCases:
             "summary": "20 critical issues across 4 agents.",
         })
         state = _make_state(findings=findings)
-        with patch("code_review.agents.orchestrator.call_agent", new_callable=AsyncMock, return_value=orch_resp):
+        with patch("code_review.config.settings.llm_mode", "remote"), \
+             patch("code_review.agents.orchestrator.call_agent", new_callable=AsyncMock, return_value=orch_resp):
             result = await run_orchestrator(state)
         assert len(result["findings"]) == 20
         assert result["summary"] == "20 critical issues across 4 agents."
@@ -465,9 +470,9 @@ class TestExtractJsonAdversarial:
         result = extract_json(text)
         assert result == [{"a": 1}]
 
-    def test_json_with_trailing_comma_fails(self):
-        with pytest.raises((json.JSONDecodeError, ValueError)):
-            extract_json('[{"a": 1},]')
+    def test_json_with_trailing_comma_recovers(self):
+        result = extract_json('[{"a": 1},]')
+        assert result == [{"a": 1}]
 
     def test_unicode_content(self):
         text = '[{"message": "变量未使用", "severity": "low", "file": "app.py", "line": 1}]'
