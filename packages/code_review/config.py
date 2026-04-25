@@ -6,15 +6,20 @@ Supports two modes:
 
 Set LLM_MODE=local or LLM_MODE=remote in .env or environment.
 """
-
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
 from code_review.models import Severity
+
+# Load .env file explicitly from project root
+_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(_env_path)
 
 
 class ProviderConfig(BaseSettings):
@@ -30,7 +35,7 @@ class Settings(BaseSettings):
 
     model_config = {
         "env_prefix": "",
-        "env_file": str(Path(__file__).resolve().parent.parent.parent.parent / ".env"),
+        "env_file": str(_env_path),
         "extra": "ignore",
     }
 

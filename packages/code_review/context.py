@@ -219,7 +219,9 @@ def assemble_context(
                  old_lines=dc["old"].count("\n") + (1 if dc["old"] else 0),
                  new_lines=dc["new"].count("\n") + (1 if dc["new"] else 0),
                  old_chars=len(dc["old"]),
-                 new_chars=len(dc["new"]))
+                 new_chars=len(dc["new"]),
+                 old_code=dc.get("old", ""),
+                 new_code=dc.get("new", ""))
 
     total_full = sum(len(c) for c in file_contents.values())
     total_focused = sum(len(c) for c in focused_contents.values())

@@ -122,20 +122,21 @@ def get_client(base_url: str, api_key: str) -> AsyncOpenAI:
 
 _call_counter = 0
 
-# Per-agent max_tokens caps tuned for small local models (Qwen3.5-9B class)
-# Prevents filler-token generation; reduces latency significantly.
+# Per-agent max_tokens caps tuned for local models (Qwen3.6 27B class)
+# Higher limits for complex code review tasks.
 _MAX_TOKENS: dict[str, int] = {
-    "syntax": 1024,
-    "logic": 2048,
-    "security": 1536,
-    "git_history": 1024,
-    "orchestrator": 1536,
-    "prefilter": 512,
+    "syntax": 2048,
+    "logic": 4096,
+    "security": 3072,
+    "git_history": 2048,
+    "orchestrator": 3072,
+    "prefilter": 1024,
 }
 
 _THINKING_RE = re.compile(
     r"<\|reserved_0x[0-9a-f]+\|>[\s\S]*?<\|reserved_0x[0-9a-f]+\|>"  # Qwen internal tokens
-    r"|<think[\s\S]*?</think>",  # XML-style thinking tags
+    r"|<think[\s\S]*?</think>"  # XML-style thinking tags
+    r"|<thinking[\s\S]*?</thinking>",  # Lowercase thinking tags
     re.IGNORECASE,
 )
 
@@ -173,6 +174,7 @@ async def call_agent(
     bus.emit("llm.request",
         id=call_id, agent=agent_name, model=provider.model,
         prompt_chars=prompt_chars, base_url=provider.base_url,
+        prompt="\n\n".join(m.get("content", "") for m in messages),
     )
 
     try:
@@ -182,13 +184,13 @@ async def call_agent(
         # on <think> tags and return empty answers within the token budget.
         extra: dict = {}
         if is_local and "qwen" in provider.model.lower():
+            # Try common thinking disable approaches for Qwen3.6
             extra["extra_body"] = {
-                "chat_template_kwargs": {"enable_thinking": False}
+                "thinking": {"type": "disabled"},
             }
 
-        # Temperature: small local models need higher temp for diverse, non-repetitive output.
-        # Cloud models keep the original low temperature.
-        temp = 0.3 if is_local else temperature
+        # Temperature: balanced for code review — creativity for suggestions, consistency for patterns.
+        temp = 0.2 if is_local else temperature
 
         create_kwargs: dict = dict(
             model=provider.model,
@@ -214,6 +216,7 @@ async def call_agent(
         bus.emit("llm.response",
             id=call_id, agent=agent_name,
             response_chars=len(content),
+            response=content,
         )
         return content
 

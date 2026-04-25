@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Code Review Dashboard</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <style>
   :root {
     --bg: #0d1117; --surface: #161b22; --border: #30363d;
@@ -33,6 +35,16 @@
   .status-dot.disconnected { background: var(--red); animation: none; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
   .elapsed { color: var(--dim); font-size: 14px; font-family: monospace; }
+  .severity-badges { display: flex; gap: 6px; align-items: center; }
+  .sev-badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600;
+    font-family: monospace;
+  }
+  .sev-badge.critical { background: #2d1215; color: var(--red); }
+  .sev-badge.high { background: #2d2000; color: var(--yellow); }
+  .sev-badge.medium { background: #1a2332; color: var(--blue); }
+  .sev-badge.low { background: #21262d; color: var(--dim); }
+  .sev-badge.none { color: var(--green); }
 
   /* Grid */
   .grid {
@@ -198,6 +210,59 @@
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: var(--bg); }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* Findings Panel */
+  .findings-grid { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; padding: 10px 12px; background: var(--bg); border-radius: 6px; font-size: 12px; font-family: monospace; }
+  .findings-grid .severity { font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+  .findings-grid .critical-sev { background: #2d1215; color: var(--red); }
+  .findings-grid .high-sev { background: #2d2000; color: var(--yellow); }
+  .findings-grid .medium-sev { background: #1a2332; color: var(--blue); }
+  .findings-grid .low-sev { background: #21262d; color: var(--dim); }
+  .findings-grid .file { color: var(--cyan); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .findings-grid .message { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .findings-grid .line { color: var(--dim); min-width: 50px; text-align: right; }
+  .findings-grid .suggestion { color: var(--green); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+  .findings-filter { display: flex; gap: 8px; margin-bottom: 10px; }
+  .findings-filter button { padding: 4px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--dim); cursor: pointer; font-size: 11px; }
+  .findings-filter button.active { background: var(--blue); color: var(--bg); border-color: var(--blue); }
+  .findings-filter button:hover { border-color: var(--blue); }
+
+  /* Expandable LLM Details */
+  .llm-detail { display: none; margin-top: 8px; padding: 12px; background: var(--bg); border-radius: 6px; border: 1px solid var(--border); font-size: 11px; }
+  .llm-detail.open { display: block; }
+  .llm-detail pre { white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; font-family: 'Fira Code', 'Consolas', monospace; }
+  .llm-detail-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+  .llm-detail-tabs button { padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--dim); cursor: pointer; font-size: 11px; }
+  .llm-detail-tabs button.active { background: var(--blue); color: var(--bg); border-color: var(--blue); }
+  .llm-expand-btn { cursor: pointer; color: var(--dim); font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--bg); border: 1px solid var(--border); }
+  .llm-expand-btn:hover { color: var(--blue); border-color: var(--blue); }
+
+  /* Code Viewer */
+  .code-viewer { display: none; margin-top: 8px; }
+  .code-viewer.open { display: block; }
+  .code-viewer pre { max-height: 400px; overflow: auto; border-radius: 6px; font-size: 12px; }
+  .code-viewer-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-bottom: none; border-radius: 6px 6px 0 0; }
+  .code-viewer-header .filename { color: var(--cyan); font-family: monospace; font-size: 12px; }
+  .code-viewer-header .close-btn { cursor: pointer; color: var(--dim); font-size: 14px; }
+  .code-viewer-header .close-btn:hover { color: var(--red); }
+
+  /* Timing Chart */
+  .timing-chart { margin-top: 12px; }
+  .timing-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .timing-label { font-size: 12px; min-width: 100px; color: var(--dim); }
+  .timing-bar-bg { flex: 1; height: 12px; background: var(--bg); border-radius: 6px; overflow: hidden; }
+  .timing-bar-fill { height: 100%; border-radius: 6px; transition: width 0.3s; }
+  .timing-bar-fill.phase { background: var(--blue); }
+  .timing-bar-fill.agent { background: var(--purple); }
+  .timing-value { font-size: 11px; color: var(--dim); font-family: monospace; min-width: 50px; text-align: right; }
+
+  /* Diff code viewer */
+  .diff-code-btn { cursor: pointer; color: var(--blue); font-size: 11px; background: none; border: none; }
+  .diff-code-btn:hover { text-decoration: underline; }
+  .diff-viewer-section { margin-top: 8px; }
+  .diff-viewer-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+  .diff-viewer-tabs button { padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--dim); cursor: pointer; font-size: 11px; }
+  .diff-viewer-tabs button.active { background: var(--blue); color: var(--bg); border-color: var(--blue); }
 </style>
 </head>
 <body>
@@ -208,6 +273,7 @@
     <div class="status-dot" id="connDot"></div>
     <span id="connText" style="font-size:13px;color:var(--dim)">Connecting...</span>
     <span class="elapsed" id="elapsed">0s</span>
+    <div class="severity-badges" id="severityBadges"></div>
   </div>
 </div>
 
@@ -282,6 +348,47 @@
       <div class="log-entries" id="logEntries"></div>
     </div>
   </div>
+
+  <!-- Timing Breakdown -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <div class="card-header">Timing Breakdown</div>
+    <div class="card-body">
+      <div class="timing-chart" id="timingChart">
+        <div style="color:var(--dim);font-size:13px">Waiting for pipeline to complete...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Findings Panel -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <div class="card-header">Findings <span id="findingsCount" style="color:var(--dim)">(0)</span></div>
+    <div class="card-body">
+      <div class="findings-filter" id="findingsFilter">
+        <button class="active" data-filter="all">All</button>
+        <button data-filter="critical">Critical</button>
+        <button data-filter="high">High</button>
+        <button data-filter="medium">Medium</button>
+        <button data-filter="low">Low</button>
+      </div>
+      <div id="findingsList">
+        <div style="color:var(--dim);font-size:13px">No findings yet...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Code Viewer -->
+  <div class="card" style="grid-column: 1 / -1; display:none" id="codeViewerCard">
+    <div class="card-header">Code Viewer</div>
+    <div class="card-body">
+      <div class="code-viewer-header">
+        <span class="filename" id="codeViewerFilename"></span>
+        <span class="close-btn" id="codeViewerClose">×</span>
+      </div>
+      <div class="code-viewer" id="codeViewer">
+        <pre><code id="codeViewerContent" class="language-python"></code></pre>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -293,11 +400,14 @@ const state = {
   phases: {},        // name → {status, detail, startTime, endTime}
   agents: {},        // name → {status, model, startTime, endTime}
   files: [],         // [{path, chars}]
-  llmCalls: [],      // [{agent, model, promptChars, responseChars, status, startTime, endTime}]
+  llmCalls: [],      // [{agent, model, promptChars, responseChars, status, startTime, endTime, prompt, response}]
   agentFiles: {},    // agent → {files: [{path, chars}], status}
   agentFileProgress: {},  // agent → {files: [{path, status, findings, error}], currentFile, total}
-  diffFiles: [],     // [{path, oldLines, newLines, oldChars, newChars}]
+  diffFiles: [],     // [{path, oldLines, newLines, oldChars, newChars, oldCode, newCode}]
   events: [],        // all events for log
+  findings: [],      // [{severity, file, line, message, suggestion, category}]
+  expandedLlms: new Set(),  // expanded LLM call IDs
+  activeFindingFilter: 'all',
 };
 
 // ── SSE Connection ─────────────────────────────────────────────────────────
@@ -451,6 +561,7 @@ function handleEvent(event) {
         id: data.id || state.llmCalls.length,
         agent: data.agent, model: data.model,
         promptChars: data.prompt_chars || 0,
+        prompt: data.prompt || '',
         responseChars: 0, status: 'pending',
         startTime: ts, endTime: null
       });
@@ -460,6 +571,8 @@ function handleEvent(event) {
       if (call) {
         call.status = 'done';
         call.responseChars = data.response_chars || 0;
+        call.response = data.response || '';
+        call.prompt = data.prompt || '';
         call.endTime = ts;
       }
       break;
@@ -477,11 +590,21 @@ function handleEvent(event) {
         path: data.path || '',
         oldLines: data.old_lines || 0, newLines: data.new_lines || 0,
         oldChars: data.old_chars || 0, newChars: data.new_chars || 0,
+        oldCode: data.old_code || '',
+        newCode: data.new_code || '',
       });
       break;
 
     case 'file.loaded':
       state.files.push({path: data.path || '', chars: data.chars || 0});
+      break;
+
+    case 'findings':
+      state.findings = data.findings || [];
+      break;
+
+    case 'review.done':
+      if (data.findings) state.findings = data.findings;
       break;
 
     case 'tool.start':
@@ -512,7 +635,10 @@ function render() {
   renderDiffFiles();
   renderFiles();
   renderLLMCalls();
+  renderFindings();
+  renderTiming();
   renderLog();
+  renderSeverityBadges();
 }
 
 function fmtDuration(startTs, endTs) {
@@ -740,22 +866,159 @@ function renderLLMCalls() {
     return;
   }
 
-  el.innerHTML = state.llmCalls.map(c => {
+  el.innerHTML = state.llmCalls.map((c, idx) => {
     let timeStr = '';
     if (c.startTime) timeStr = fmtDuration(c.startTime, c.endTime);
     const shortModel = (c.model || '').split('/').pop();
+    const isExpanded = state.expandedLlms.has(c.id || idx);
+    const hasDetail = c.prompt || c.response;
 
-    return `<div class="llm-row">
-      <span class="label">${c.agent || '?'}</span>
-      <span class="model" title="${c.model}">${shortModel}</span>
-      <span class="size">prompt: ${fmtChars(c.promptChars)}</span>
-      <span class="size">resp: ${fmtChars(c.responseChars)}</span>
-      <span class="time">${timeStr}</span>
-      <span class="status-badge ${c.status}">${c.status === 'pending' ? '...' : c.status === 'done' ? 'OK' : 'ERR'}</span>
+    return `<div>
+      <div class="llm-row" data-llm-id="${c.id || idx}" onclick="toggleLlmDetail('${c.id || idx}')">
+        <span class="label">${c.agent || '?'}</span>
+        <span class="model" title="${c.model}">${shortModel}</span>
+        <span class="size">prompt: ${fmtChars(c.promptChars)}</span>
+        <span class="size">resp: ${fmtChars(c.responseChars)}</span>
+        <span class="time">${timeStr}</span>
+        <span class="status-badge ${c.status}">${c.status === 'pending' ? '...' : c.status === 'done' ? 'OK' : 'ERR'}</span>
+        ${hasDetail ? `<button class="llm-expand-btn" style="margin-left:8px">${isExpanded ? '▼' : '▶'}</button>` : ''}
+      </div>
+      ${hasDetail ? `<div class="llm-detail ${isExpanded ? 'open' : ''}" id="llm-detail-${c.id || idx}">
+        <div class="llm-detail-tabs">
+          <button class="${!c._tab || c._tab === 'prompt' ? 'active' : ''}" onclick="showLlmTab('${c.id || idx}', 'prompt')">Prompt</button>
+          <button class="${c._tab === 'response' ? 'active' : ''}" onclick="showLlmTab('${c.id || idx}', 'response')">Response</button>
+        </div>
+        <pre>${escapeHtml((c._tab === 'response' ? c.response : c.prompt) || '(no data)')}</pre>
+      </div>` : ''}
     </div>`;
   }).join('');
 
   el.scrollTop = el.scrollHeight;
+}
+
+function toggleLlmDetail(id) {
+  if (state.expandedLlms.has(id)) {
+    state.expandedLlms.delete(id);
+  } else {
+    state.expandedLlms.add(id);
+  }
+  renderLLMCalls();
+}
+
+function showLlmTab(id, tab) {
+  const call = state.llmCalls.find(c => c.id === id);
+  if (call) {
+    call._tab = tab;
+    renderLLMCalls();
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderSeverityBadges() {
+  const el = document.getElementById('severityBadges');
+  const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+  state.findings.forEach(f => {
+    if (counts.hasOwnProperty(f.severity)) counts[f.severity]++;
+  });
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+  if (total === 0) {
+    el.innerHTML = '<span class="sev-badge none">✓ 0 issues</span>';
+    return;
+  }
+
+  el.innerHTML = Object.entries(counts)
+    .filter(([_, v]) => v > 0)
+    .map(([sev, v]) => `<span class="sev-badge ${sev}">${v} ${sev}</span>`)
+    .join('');
+}
+
+function renderFindings() {
+  const el = document.getElementById('findingsList');
+  const countEl = document.getElementById('findingsCount');
+  const filter = state.activeFindingFilter;
+
+  const filtered = filter === 'all'
+    ? state.findings
+    : state.findings.filter(f => f.severity === filter);
+
+  countEl.textContent = `(${filtered.length}${filter !== 'all' ? '/' + state.findings.length : ''})`;
+
+  if (filtered.length === 0) {
+    el.innerHTML = '<div style="color:var(--dim);font-size:13px">No findings matching filter...</div>';
+    return;
+  }
+
+  el.innerHTML = filtered.map(f => {
+    const sevClass = f.severity + '-sev';
+    const shortPath = f.file.split(/[/\\]/).slice(-2).join('/');
+    return `<div class="findings-grid">
+      <span class="severity ${sevClass}">${f.severity}</span>
+      <span class="file" title="${f.file}">${shortPath}</span>
+      <span class="message" title="${f.message}">${truncate(f.message, 60)}</span>
+      <span class="line">:${f.line || '?'}</span>
+      <span class="suggestion" title="${f.suggestion}">${truncate(f.suggestion, 30)}</span>
+    </div>`;
+  }).join('');
+
+  // Setup filter buttons
+  document.querySelectorAll('.findings-filter button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === filter);
+    btn.onclick = () => {
+      state.activeFindingFilter = btn.dataset.filter;
+      renderFindings();
+    };
+  });
+}
+
+function truncate(str, len) {
+  return str.length > len ? str.slice(0, len) + '...' : str;
+}
+
+function renderTiming() {
+  const el = document.getElementById('timingChart');
+  const maxTime = Math.max(
+    ...Object.values(state.phases).map(p => p.endTime && p.startTime ? p.endTime - p.startTime : 0),
+    ...Object.values(state.agents).map(a => a.endTime && a.startTime ? a.endTime - a.startTime : 0),
+    1
+  );
+
+  const phaseOrder = ['static_analysis', 'context', 'agents'];
+  const phaseLabels = { static_analysis: 'Static Analysis', context: 'Context Assembly', agents: 'AI Agents' };
+
+  let html = '<div style="font-size:12px;color:var(--dim);margin-bottom:8px">Phases</div>';
+
+  phaseOrder.forEach(name => {
+    const p = state.phases[name];
+    if (!p) return;
+    const dur = p.endTime && p.startTime ? p.endTime - p.startTime : 0;
+    const pct = (dur / maxTime) * 100;
+    html += `<div class="timing-bar">
+      <span class="timing-label">${phaseLabels[name]}</span>
+      <div class="timing-bar-bg"><div class="timing-bar-fill phase" style="width:${pct}%"></div></div>
+      <span class="timing-value">${dur > 0 ? fmtDuration(p.startTime, p.endTime) : '—'}</span>
+    </div>`;
+  });
+
+  html += '<div style="font-size:12px;color:var(--dim);margin:16px 0 8px">Agents</div>';
+
+  const agentOrder = ['syntax', 'logic', 'security', 'git_history'];
+  agentOrder.forEach(name => {
+    const a = state.agents[name];
+    if (!a) return;
+    const dur = a.endTime && a.startTime ? a.endTime - a.startTime : 0;
+    const pct = (dur / maxTime) * 100;
+    html += `<div class="timing-bar">
+      <span class="timing-label">${name}</span>
+      <div class="timing-bar-bg"><div class="timing-bar-fill agent" style="width:${pct}%"></div></div>
+      <span class="timing-value">${dur > 0 ? fmtDuration(a.startTime, a.endTime) : '—'}</span>
+    </div>`;
+  });
+
+  el.innerHTML = html;
 }
 
 function renderLog() {
@@ -825,6 +1088,106 @@ fetch('/api/history')
     connect();
   })
   .catch(() => connect());
+
+// Code Viewer functionality
+function showCodeViewer(filepath, code, language = 'python') {
+  const card = document.getElementById('codeViewerCard');
+  const viewer = document.getElementById('codeViewer');
+  const content = document.getElementById('codeViewerContent');
+  const filename = document.getElementById('codeViewerFilename');
+
+  filename.textContent = filepath;
+  content.textContent = code;
+  content.className = 'language-' + language;
+  viewer.classList.add('open');
+  card.style.display = 'block';
+  hljs.highlightElement(content);
+  card.scrollIntoView({ behavior: 'smooth' });
+}
+
+function hideCodeViewer() {
+  document.getElementById('codeViewerCard').style.display = 'none';
+  document.getElementById('codeViewer').classList.remove('open');
+}
+
+document.getElementById('codeViewerClose').onclick = hideCodeViewer;
+
+// ── Code Viewer for Diff Files ─────────────────────────────────────────────
+
+function renderDiffFiles() {
+  const el = document.getElementById('diffFiles');
+  const countEl = document.getElementById('diffCount');
+  countEl.textContent = state.diffFiles.length ? `(${state.diffFiles.length} files)` : '';
+
+  if (state.diffFiles.length === 0) {
+    el.innerHTML = '<div style="color:var(--dim);font-size:13px">Waiting for diff analysis...</div>';
+    return;
+  }
+
+  el.innerHTML = state.diffFiles.map((f, idx) => {
+    const shortPath = f.path.split(/[/\\]/).slice(-3).join('/');
+    const maxChars = Math.max(f.oldChars, f.newChars, 1);
+    const oldPct = Math.round((f.oldChars / maxChars) * 100);
+    const newPct = Math.round((f.newChars / maxChars) * 100);
+    const hasCode = f.oldCode || f.newCode;
+
+    return `<div class="diff-file-row">
+      <div>
+        <div class="filepath" title="${f.path}">${shortPath}</div>
+        <div class="diff-bar">
+          <div class="old-bar" style="width:${oldPct}%"></div>
+          <div class="new-bar" style="width:${newPct}%"></div>
+        </div>
+      </div>
+      <div class="diff-old">- ${f.oldLines} lines (${fmtChars(f.oldChars)})</div>
+      <div class="diff-new">+ ${f.newLines} lines (${fmtChars(f.newChars)})</div>
+      ${hasCode ? `<button class="diff-code-btn" onclick="showDiffCode('${idx}')">View code</button>` : ''}
+    </div>
+    <div class="diff-viewer-section" id="diff-viewer-${idx}" style="display:none">
+      <div class="diff-viewer-tabs">
+        <button class="active" onclick="showDiffTab('${idx}', 'old')">Old (${f.oldLines} lines)</button>
+        <button onclick="showDiffTab('${idx}', 'new')">New (${f.newLines} lines)</button>
+      </div>
+      <pre id="diff-code-${idx}" class="language-python"></pre>
+    </div>`;
+  }).join('');
+}
+
+function showDiffCode(idx) {
+  const section = document.getElementById('diff-viewer-' + idx);
+  section.style.display = section.style.display === 'none' ? 'block' : 'none';
+}
+
+function showDiffTab(idx, tab) {
+  const f = state.diffFiles[idx];
+  if (!f) return;
+  const code = tab === 'old' ? f.oldCode : f.newCode;
+  const el = document.getElementById('diff-code-' + idx);
+  el.textContent = code || '(no code available)';
+  hljs.highlightElement(el);
+
+  // Update tab buttons
+  const section = document.getElementById('diff-viewer-' + idx);
+  section.querySelectorAll('.diff-viewer-tabs button').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent.startsWith(tab === 'old' ? 'Old' : 'New'));
+  });
+}
+
+// Auto-scroll toggle for event log
+let autoScrollLog = true;
+document.getElementById('logEntries').addEventListener('scroll', () => {
+  const el = document.getElementById('logEntries');
+  autoScrollLog = el.scrollTop + el.clientHeight >= el.scrollHeight - 50;
+});
+
+// Override renderLog to respect auto-scroll
+const _origRenderLog = renderLog;
+renderLog = function() {
+  _origRenderLog();
+  if (autoScrollLog) {
+    document.getElementById('logEntries').scrollTop = document.getElementById('logEntries').scrollHeight;
+  }
+};
 
 </script>
 </body>
