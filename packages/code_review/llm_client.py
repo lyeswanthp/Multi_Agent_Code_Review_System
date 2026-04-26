@@ -122,16 +122,16 @@ def get_client(base_url: str, api_key: str) -> AsyncOpenAI:
 
 _call_counter = 0
 
-# Per-agent max_tokens caps tuned for local models (Qwen3.6 27B class)
-# Higher limits for complex code review tasks.
+# Per-agent max_tokens caps — generous limits to avoid truncating JSON responses.
+# Local models (Qwen3.6 27B) need headroom for structured JSON output with multiple findings.
 _MAX_TOKENS: dict[str, int] = {
-    "syntax": 512,
-    "logic": 1024,
-    "security": 512,
-    "git_history": 512,
-    "orchestrator": 1024,
-    "prefilter": 256,
-    "master": 4096,
+    "syntax": 2048,
+    "logic": 3072,
+    "security": 2048,
+    "git_history": 2048,
+    "orchestrator": 4096,
+    "prefilter": 1536,
+    "master": 8192,
 }
 
 _THINKING_RE = re.compile(

@@ -124,7 +124,6 @@ class Settings(BaseSettings):
             ),
         }
         return providers[agent]
-        return providers[agent]
 
 
 # Singleton — import this from anywhere

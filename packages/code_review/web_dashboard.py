@@ -71,6 +71,11 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         def _on_event(event: Event):
             q.put(event)
 
+        # Replay historical events first (for late-connecting clients)
+        for event in bus.history:
+            self.wfile.write(f"event: {event.kind}\ndata: {event.to_json()}\n\n".encode())
+        self.wfile.flush()
+
         bus.subscribe(_on_event)
         try:
             while not done_evt.is_set():
