@@ -37,6 +37,7 @@ class AgentName(str, Enum):
     SECURITY = "security"
     GIT_HISTORY = "git_history"
     ORCHESTRATOR = "orchestrator"
+    MASTER = "master"
 
 
 class Finding(BaseModel):
@@ -95,3 +96,38 @@ class ReviewResult(BaseModel):
     @property
     def exit_code(self) -> int:
         return 1 if self.findings else 0
+
+
+class LSPDiagnostic(BaseModel):
+    """Type error from LSP."""
+    message: str
+    line: int = 0
+    column: int = 0
+    severity: str = "error"
+
+
+class LSPTypeInfo(BaseModel):
+    """Type information for a single file from LSP analysis."""
+    file: str = ""
+    hover_types: dict[str, str] = Field(default_factory=dict)
+    signatures: dict[str, str] = Field(default_factory=dict)
+    symbols: list[dict] = Field(default_factory=list)
+    diagnostics: list[LSPDiagnostic] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+    def to_context_str(self) -> str:
+        """Format type info as string for LLM injection."""
+        parts = []
+        if self.hover_types:
+            lines = [f"  {var} → {type_}" for var, type_ in self.hover_types.items()]
+            parts.append("## Variable Types:\n" + "\n".join(lines))
+        if self.signatures:
+            lines = [f"  {fn} → {sig}" for fn, sig in self.signatures.items()]
+            parts.append("## Function Signatures:\n" + "\n".join(lines))
+        if self.symbols:
+            lines = [f"  [{s['kind']}] {s['name']}" + (f" : {s['detail']}" if s.get('detail') else "") for s in self.symbols]
+            parts.append("## Code Symbols:\n" + "\n".join(lines))
+        if self.diagnostics:
+            lines = [f"  Line {d.line}: {d.message}" for d in self.diagnostics]
+            parts.append("## Type Errors:\n" + "\n".join(lines))
+        return "\n".join(parts) if parts else ""

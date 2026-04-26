@@ -27,7 +27,7 @@ class Event:
     ts: float = field(default_factory=time.time)
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self), default=str)
+        return json.dumps({"kind": self.kind, "data": self.data, "ts": self.ts}, default=str)
 
 
 class EventBus:
@@ -73,6 +73,15 @@ class EventBus:
     def done_event(self) -> threading.Event:
         """Return the review-done event (set when review completes)."""
         return self._done
+
+
+def emit_findings(findings: list[dict]) -> None:
+    """Emit individual findings for real-time dashboard updates."""
+    for f in findings:
+        if isinstance(f, dict):
+            bus.emit("finding.add", **f)
+        elif hasattr(f, 'model_dump'):
+            bus.emit("finding.add", **f.model_dump())
 
 
 def agent_telemetry(agent_name: str):

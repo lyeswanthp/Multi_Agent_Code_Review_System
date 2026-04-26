@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # Severity threshold — findings below this are filtered out
     severity_threshold: Severity = Severity.MEDIUM
 
+    # LSP settings
+    lsp_enabled: bool = Field(default=True, alias="LSP_ENABLED")
+    lsp_timeout_seconds: int = Field(default=10, alias="LSP_TIMEOUT_SECONDS")
+    lsp_max_files: int = Field(default=50, alias="LSP_MAX_FILES")
+
     # Remote model assignments (used when LLM_MODE=remote)
     syntax_model: str = "llama-3.3-70b-versatile"
     logic_model: str = "mistralai/devstral-2-123b-instruct-2512"
@@ -73,16 +78,24 @@ class Settings(BaseSettings):
 
     def _local_provider(self, agent: str) -> ProviderConfig:
         """All agents route to local LM Studio. Heavy model for reasoning, light for the rest."""
-        heavy_agents = {"logic", "security", "orchestrator"}
+        heavy_agents = {"logic", "security", "orchestrator", "master"}
         model = self.lmstudio_heavy_model if agent in heavy_agents else self.lmstudio_light_model
         return ProviderConfig(
             base_url=self.lmstudio_base_url,
-            api_key="lm-studio",  # LM Studio ignores this but openai SDK requires non-empty
+            api_key="lm-studio",
             model=model,
         )
 
     def _remote_provider(self, agent: str) -> ProviderConfig:
-        """Route agents to cloud free-tier providers."""
+        """Route agents to cloud free-tier providers. Master agent always uses local."""
+        # Master agent always uses local LM Studio - no cloud API
+        if agent == "master":
+            return ProviderConfig(
+                base_url=self.lmstudio_base_url,
+                api_key="lm-studio",
+                model=self.lmstudio_heavy_model,
+            )
+
         providers = {
             "syntax": ProviderConfig(
                 base_url="https://api.groq.com/openai/v1",
@@ -110,6 +123,7 @@ class Settings(BaseSettings):
                 model=self.orchestrator_model,
             ),
         }
+        return providers[agent]
         return providers[agent]
 
 

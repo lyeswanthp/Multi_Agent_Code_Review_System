@@ -432,7 +432,7 @@ function connect() {
     'agent.start', 'agent.done', 'agent.fail', 'agent.set', 'agent.files',
     'agent.file.start', 'agent.file.done', 'agent.file.skip',
     'llm.request', 'llm.response', 'llm.error',
-    'diff.file',
+    'diff.file', 'finding.add',
     'file.loaded', 'tool.start', 'tool.done', 'tool.skip',
     'log.warning', 'log.error',
     'review.start', 'review.done',
@@ -601,6 +601,17 @@ function handleEvent(event) {
 
     case 'findings':
       state.findings = data.findings || [];
+      break;
+
+    case 'finding.add':
+      state.findings.push({
+        severity: data.severity || 'medium',
+        file: data.file || '',
+        line: data.line || 0,
+        message: data.message || '',
+        suggestion: data.suggestion || '',
+        category: data.category || ''
+      });
       break;
 
     case 'review.done':

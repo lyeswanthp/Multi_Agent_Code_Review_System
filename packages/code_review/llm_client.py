@@ -115,7 +115,7 @@ def truncate_system_prompt(prompt: str) -> str:
 def get_client(base_url: str, api_key: str) -> AsyncOpenAI:
     """Get or create an AsyncOpenAI client for the given provider."""
     if base_url not in _clients:
-        timeout = 900.0 if "localhost" in base_url or "127.0.0.1" in base_url else 60.0
+        timeout = 120.0 if "localhost" in base_url or "127.0.0.1" in base_url else 60.0
         _clients[base_url] = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
     return _clients[base_url]
 
@@ -125,12 +125,13 @@ _call_counter = 0
 # Per-agent max_tokens caps tuned for local models (Qwen3.6 27B class)
 # Higher limits for complex code review tasks.
 _MAX_TOKENS: dict[str, int] = {
-    "syntax": 2048,
-    "logic": 4096,
-    "security": 3072,
-    "git_history": 2048,
-    "orchestrator": 3072,
-    "prefilter": 1024,
+    "syntax": 512,
+    "logic": 1024,
+    "security": 512,
+    "git_history": 512,
+    "orchestrator": 1024,
+    "prefilter": 256,
+    "master": 1536,
 }
 
 _THINKING_RE = re.compile(
@@ -217,6 +218,7 @@ async def call_agent(
             id=call_id, agent=agent_name,
             response_chars=len(content),
             response=content,
+            prompt="\n\n".join(m.get("content", "") for m in messages),
         )
         return content
 

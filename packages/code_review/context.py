@@ -17,6 +17,7 @@ from git import Repo
 from code_review.models import ToolResults
 from code_review.state import ReviewState
 from code_review.tools.git_diff import get_overlap_diffs
+from code_review.tools.lsp_runner import resolve_types
 
 logger = logging.getLogger(__name__)
 
@@ -283,6 +284,30 @@ def assemble_context(
         except Exception as e:
             logger.warning("Topological RAG / Knowledge graph build failed: %s", e)
 
+    # Step 4.5: LSP Type Resolution (deterministic type awareness)
+    from code_review.config import settings
+    lsp_context: dict[str, dict] = {}
+
+    if settings.lsp_enabled and file_contents:
+        lsp_file_count = 0
+        for filepath in sorted(file_contents.keys()):
+            if lsp_file_count >= settings.lsp_max_files:
+                break
+
+            abs_path = os.path.join(repo_root, filepath)
+            if os.path.isfile(abs_path):
+                try:
+                    lsp_info = resolve_types(abs_path)
+                    if lsp_info and (lsp_info.symbols or lsp_info.diagnostics or lsp_info.errors):
+                        lsp_context[filepath] = lsp_info.model_dump()
+                        bus.emit("file.loaded", path=f"{filepath} (LSP)", chars=len(lsp_info.to_context_str()))
+                    lsp_file_count += 1
+                except Exception as e:
+                    logger.warning("LSP resolution failed for %s: %s", filepath, e)
+
+        if lsp_context:
+            logger.info("LSP resolved types for %d files", len(lsp_context))
+
     # Step 5: Get overlap diffs
     overlap_diffs: dict[str, str] = {}
     if repo and commit_sha and overlap_files:
@@ -307,6 +332,7 @@ def assemble_context(
         semgrep_findings=semgrep_findings,
         bandit_findings=bandit_findings,
         overlap_diffs=overlap_diffs,
+        lsp_context=lsp_context,
         findings=[],
         summary="",
     )

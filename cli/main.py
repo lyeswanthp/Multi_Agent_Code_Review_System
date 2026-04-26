@@ -31,6 +31,7 @@ async def _run_review(
     repo_path: Optional[str] = None,
     commit_sha: Optional[str] = None,
     severity: Severity = Severity.MEDIUM,
+    full_review: bool = False,
 ) -> ReviewResult:
     """Execute the full review pipeline."""
     from git import Repo, InvalidGitRepositoryError
@@ -52,7 +53,7 @@ async def _run_review(
 
     # -- Tier 1: Static analysis ------------------------------------------------
     bus.emit("phase.start", phase="static_analysis")
-    tool_results = await run_all_tools(path, repo, commit_sha)
+    tool_results = await run_all_tools(path, repo, commit_sha, full_review)
     t1_count = len(tool_results.all_findings)
     tools_run = [
         t for t, findings in [
@@ -109,7 +110,7 @@ async def _run_review(
 
 @app.command()
 def review(
-    path: str = typer.Argument(".", help="Path to review"),
+    path: str = typer.Option(".", "--path", help="Path to review"),
     repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Git repo path"),
     sha: Optional[str] = typer.Option(None, "--sha", "-s", help="Commit SHA to review"),
     severity: str = typer.Option("medium", "--severity", "-S",
@@ -121,6 +122,8 @@ def review(
     gh_pr: Optional[int] = typer.Option(None, "--gh-pr", help="GitHub PR number"),
     dashboard_port: int = typer.Option(9120, "--dashboard-port", "-d",
                                        help="Web dashboard port (0 to disable)"),
+    full: bool = typer.Option(False, "--full", "-F",
+                              help="Review all source files, not just changed ones"),
 ) -> None:
     """Run a multi-agent code review on the given path."""
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
@@ -167,7 +170,7 @@ def review(
               vertical_overflow="visible") as live:
 
         async def _run_and_refresh() -> ReviewResult:
-            task = asyncio.create_task(_run_review(path, repo, sha, sev))
+            task = asyncio.create_task(_run_review(path, repo, sha, sev, full))
             while not task.done():
                 live.update(dash.render())
                 await asyncio.sleep(0.25)

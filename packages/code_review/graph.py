@@ -13,11 +13,9 @@ from typing import Literal
 from langgraph.graph import END, START, StateGraph
 
 from code_review.agents.git_history import run_git_history_agent
-from code_review.agents.logic import run_logic_agent
+from code_review.agents.master_review import run_master_agent
 from code_review.agents.orchestrator import run_orchestrator
 from code_review.agents.prefilter import run_prefilter
-from code_review.agents.security import run_security_agent
-from code_review.agents.syntax import run_syntax_agent
 from code_review.config import settings
 from code_review.state import ReviewState
 
@@ -29,37 +27,32 @@ def _should_run(agent: str, state: ReviewState) -> bool:
 
 
 def _route_after_prefilter_parallel(state: ReviewState) -> list[str]:
-    """Route to agents that should run (parallel mode)."""
+    """Route to agents that should run (parallel mode).
+
+    Master agent handles syntax/logic/security in one pass.
+    Git history runs separately (different input data).
+    """
     targets = []
-    if _should_run("syntax", state):
-        targets.append("syntax_agent")
-    if _should_run("security", state):
-        targets.append("security_agent")
+    if _should_run("master", state):
+        targets.append("master_agent")
     if _should_run("git_history", state):
         targets.append("git_history_agent")
-    # If syntax won't run but logic should, start logic directly
-    if not _should_run("syntax", state) and _should_run("logic", state):
-        targets.append("logic_agent")
     return targets or ["orchestrator"]
 
 
-def _route_after_syntax(state: ReviewState) -> Literal["logic_agent", "orchestrator"]:
-    """After syntax: run logic unless syntax found critical issues or logic not needed."""
-    if not _should_run("logic", state):
-        return "orchestrator"
-    if state.get("syntax_has_critical", False):
-        return "orchestrator"  # Early termination: skip logic if syntax is critical
-    return "logic_agent"
+def _route_after_master(state: ReviewState) -> Literal["git_history_agent", "orchestrator"]:
+    """After master: run git_history if needed, then orchestrator."""
+    if _should_run("git_history", state):
+        return "git_history_agent"
+    return "orchestrator"
 
 
 def _route_after_prefilter_sequential(state: ReviewState) -> Literal[
-    "syntax_agent", "logic_agent", "security_agent", "git_history_agent", "orchestrator"
+    "master_agent", "git_history_agent", "orchestrator"
 ]:
     """Route to first agent that should run (sequential mode)."""
     for agent, node in [
-        ("syntax", "syntax_agent"),
-        ("logic", "logic_agent"),
-        ("security", "security_agent"),
+        ("master", "master_agent"),
         ("git_history", "git_history_agent"),
     ]:
         if _should_run(agent, state):
@@ -67,56 +60,43 @@ def _route_after_prefilter_sequential(state: ReviewState) -> Literal[
     return "orchestrator"
 
 
-def _route_seq_after(current: str, remaining: list[str], state: ReviewState) -> str:
-    """Find the next agent to run in sequential mode, or go to orchestrator."""
-    # Early termination: if syntax found critical issues, skip logic
-    if current == "syntax" and state.get("syntax_has_critical", False):
-        remaining = [a for a in remaining if a != "logic"]
-
-    for agent, node in [(a, f"{a}_agent") for a in remaining]:
-        if _should_run(agent, state):
-            return node
+def _route_after_master_seq(state: ReviewState) -> str:
+    """After master: run git_history if needed, then orchestrator."""
+    if _should_run("git_history", state):
+        return "git_history_agent"
     return "orchestrator"
 
 
-def _route_after_syntax_seq(state: ReviewState) -> str:
-    return _route_seq_after("syntax", ["logic", "security", "git_history"], state)
+def _route_after_git_history_seq(state: ReviewState) -> str:
+    return "orchestrator"
 
 
-def _route_after_logic_seq(state: ReviewState) -> str:
-    return _route_seq_after("logic", ["security", "git_history"], state)
-
-
-def _route_after_security_seq(state: ReviewState) -> str:
-    return _route_seq_after("security", ["git_history"], state)
+def _route_after_git_history(state: ReviewState) -> str:
+    return "orchestrator"
 
 
 # --- Graph builders ---
 
 def build_parallel_graph():
-    """Hybrid fan-out: prefilter → [syntax, security, git_history] parallel.
+    """Hybrid fan-out: prefilter → [master, git_history] parallel.
 
-    Logic waits for syntax (benefits from its findings).
-    Early termination: logic skipped if syntax finds critical issues.
+    Master agent handles syntax/logic/security in one pass.
+    Git history runs separately (different input: overlap diffs).
     All agents → orchestrator → END.
     """
     builder = StateGraph(ReviewState)
     builder.add_node("prefilter", run_prefilter)
-    builder.add_node("syntax_agent", run_syntax_agent)
-    builder.add_node("logic_agent", run_logic_agent)
-    builder.add_node("security_agent", run_security_agent)
+    builder.add_node("master_agent", run_master_agent)
     builder.add_node("git_history_agent", run_git_history_agent)
     builder.add_node("orchestrator", run_orchestrator)
 
     builder.add_edge(START, "prefilter")
     builder.add_conditional_edges("prefilter", _route_after_prefilter_parallel)
 
-    # Syntax → conditional → logic or orchestrator
-    builder.add_conditional_edges("syntax_agent", _route_after_syntax)
+    # Master → conditional → git_history or orchestrator
+    builder.add_conditional_edges("master_agent", _route_after_master)
 
-    # All other agents → orchestrator
-    builder.add_edge("logic_agent", "orchestrator")
-    builder.add_edge("security_agent", "orchestrator")
+    # Git history → orchestrator
     builder.add_edge("git_history_agent", "orchestrator")
 
     builder.add_edge("orchestrator", END)
@@ -124,25 +104,22 @@ def build_parallel_graph():
 
 
 def build_sequential_graph():
-    """Chain: prefilter → conditional sequential agents → orchestrator → END.
+    """Chain: prefilter → master → git_history → orchestrator → END.
 
-    Skips agents not needed. Early termination if syntax finds critical issues.
+    Master handles syntax/logic/security in one pass.
+    Git history runs after if enabled.
     """
     builder = StateGraph(ReviewState)
     builder.add_node("prefilter", run_prefilter)
-    builder.add_node("syntax_agent", run_syntax_agent)
-    builder.add_node("logic_agent", run_logic_agent)
-    builder.add_node("security_agent", run_security_agent)
+    builder.add_node("master_agent", run_master_agent)
     builder.add_node("git_history_agent", run_git_history_agent)
     builder.add_node("orchestrator", run_orchestrator)
 
     builder.add_edge(START, "prefilter")
     builder.add_conditional_edges("prefilter", _route_after_prefilter_sequential)
 
-    builder.add_conditional_edges("syntax_agent", _route_after_syntax_seq)
-    builder.add_conditional_edges("logic_agent", _route_after_logic_seq)
-    builder.add_conditional_edges("security_agent", _route_after_security_seq)
-    builder.add_edge("git_history_agent", "orchestrator")
+    builder.add_conditional_edges("master_agent", _route_after_master_seq)
+    builder.add_conditional_edges("git_history_agent", _route_after_git_history_seq)
 
     builder.add_edge("orchestrator", END)
     return builder.compile()

@@ -86,6 +86,7 @@ async def run_all_tools(
     path: str,
     repo: Repo | None = None,
     commit_sha: str | None = None,
+    full_review: bool = False,
 ) -> ToolResults:
     """Run all Tier 1 tools in parallel and return aggregated results."""
 
@@ -104,7 +105,14 @@ async def run_all_tools(
     raw_diff = ""
     scan_mode = "full"
 
-    if repo and commit_sha:
+    if full_review:
+        # Force full scan — scan all source files, ignore git changes
+        logger.info("Full review mode: scanning all source files in %s", path)
+        changed_files = scan_all_files(path)
+        scan_mode = "full"
+        bus.emit("log.warning", logger="runner",
+                 message=f"Full review: {len(changed_files)} files")
+    elif repo and commit_sha:
         # Explicit commit review
         changed_files = get_changed_files(repo, commit_sha)
         overlap_files = get_file_overlap(repo, commit_sha)

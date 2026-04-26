@@ -14,25 +14,29 @@ _CODE_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", 
 
 
 def run_prefilter(state: ReviewState) -> dict:
-    """Determine which agents to run based on available data."""
+    """Determine which agents to run based on available data.
+
+    Master agent handles syntax/logic/security in one pass.
+    Git history runs separately (different input).
+    """
     agents = []
 
-    # Syntax: only if there are linter findings
-    if state.get("linter_findings"):
-        agents.append("syntax")
-
-    # Logic: only if there's a diff or file contents to analyze
-    if state.get("raw_diff") or state.get("file_contents") or state.get("focused_contents"):
-        agents.append("logic")
-
-    # Security: only if there are SAST findings OR code files (not just configs/docs)
-    has_sast = state.get("semgrep_findings") or state.get("bandit_findings")
+    # Master: runs when there's diff content or code files to analyze
+    # (combines syntax/logic/security in a single LLM call)
+    has_code = (
+        state.get("raw_diff") or
+        state.get("file_contents") or
+        state.get("focused_contents") or
+        state.get("linter_findings") or
+        state.get("semgrep_findings") or
+        state.get("bandit_findings")
+    )
     has_code_files = any(
         PurePosixPath(f).suffix in _CODE_EXTENSIONS
         for f in state.get("changed_files", [])
     )
-    if has_sast or has_code_files:
-        agents.append("security")
+    if has_code or has_code_files:
+        agents.append("master")
 
     # Git history: only if there are overlapping files
     if state.get("overlap_files"):

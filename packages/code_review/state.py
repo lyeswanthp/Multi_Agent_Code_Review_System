@@ -39,6 +39,9 @@ class ReviewState(TypedDict):
     # Per-file old/new code extracted from diff (written by Tier 2)
     diff_context: dict[str, dict[str, str]]  # {file: {"old": ..., "new": ..., "diff": ...}}
 
+    # LSP type context (written by Tier 2, read by agents)
+    lsp_context: dict[str, dict]  # {file: LSPTypeInfo as dict}
+
     # Git history diffs for overlap files (written by Tier 1)
     overlap_diffs: dict[str, str]
 

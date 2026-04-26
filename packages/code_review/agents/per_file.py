@@ -12,7 +12,7 @@ import json
 import logging
 
 from code_review.cache import get_cached, set_cached
-from code_review.events import bus
+from code_review.events import bus, emit_findings
 from code_review.llm_client import call_agent, extract_json, truncate_content, truncate_system_prompt
 from code_review.models import AgentName, Finding, Severity
 
@@ -97,6 +97,11 @@ async def run_per_file(
 
         findings = _parse_findings(items, agent_enum, filepath, category)
         all_findings.extend(findings)
+
+        # Emit findings in real-time for dashboard updates
+        if findings:
+            for f in findings:
+                emit_findings(f.model_dump())
 
         set_cached(f"{agent_name}:{filepath}", user_msg, items)
         bus.emit("agent.file.done", agent=agent_name, file=filepath,
