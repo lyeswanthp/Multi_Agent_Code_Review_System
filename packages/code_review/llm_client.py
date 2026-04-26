@@ -131,7 +131,7 @@ _MAX_TOKENS: dict[str, int] = {
     "git_history": 512,
     "orchestrator": 1024,
     "prefilter": 256,
-    "master": 1536,
+    "master": 4096,
 }
 
 _THINKING_RE = re.compile(
@@ -181,13 +181,12 @@ async def call_agent(
     try:
         is_local = "localhost" in provider.base_url or "127.0.0.1" in provider.base_url
 
-        # Disable thinking mode for Qwen3+ models on local — they waste tokens
+        # Disable thinking mode for Qwen models on local — they waste tokens
         # on <think> tags and return empty answers within the token budget.
         extra: dict = {}
         if is_local and "qwen" in provider.model.lower():
-            # Try common thinking disable approaches for Qwen3.6
             extra["extra_body"] = {
-                "thinking": {"type": "disabled"},
+                "thinking": "off",
             }
 
         # Temperature: balanced for code review — creativity for suggestions, consistency for patterns.

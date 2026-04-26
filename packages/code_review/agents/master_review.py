@@ -191,7 +191,7 @@ async def run_master_agent(state: ReviewState) -> dict:
             )
 
             if not response.strip():
-                logger.warning("Master agent empty response for %s", filepath)
+                logger.warning("Master agent empty response for %s (retrying...)", filepath)
                 response = await call_agent(
                     AgentName.MASTER,
                     messages=[
@@ -201,6 +201,7 @@ async def run_master_agent(state: ReviewState) -> dict:
                 )
 
             if not response.strip():
+                logger.error("Master agent: empty response for %s after retry", filepath)
                 bus.emit("agent.file.done", agent="master", file=filepath,
                          findings=0, error="empty response")
                 continue
@@ -208,9 +209,10 @@ async def run_master_agent(state: ReviewState) -> dict:
             result = extract_json(response)
 
             if not isinstance(result, dict):
-                logger.warning("Master agent returned non-dict for %s: %s", filepath, type(result).__name__)
-                # Fallback for this file
-                fallback_used = True
+                logger.warning("Master agent returned %s instead of dict for %s — skipping file",
+                             type(result).__name__, filepath)
+                bus.emit("agent.file.done", agent="master", file=filepath,
+                         findings=0, error=f"invalid response type: {type(result).__name__}")
                 continue
 
             findings = _parse_master_result(result, filepath)
@@ -221,11 +223,12 @@ async def run_master_agent(state: ReviewState) -> dict:
                     bus.emit("agent.finding", finding=f.model_dump())
 
             bus.emit("agent.file.done", agent="master", file=filepath,
-                     findings=len(findings), categories=result.keys())
+                     findings=len(findings), categories=list(result.keys()))
 
         except Exception as e:
             logger.error("Master agent failed for %s: %s", filepath, e)
-            fallback_used = True
+            bus.emit("agent.file.done", agent="master", file=filepath,
+                     findings=0, error=str(e)[:100])
 
     if fallback_used:
         logger.info("Master had failures, running individual agents for complete coverage")
