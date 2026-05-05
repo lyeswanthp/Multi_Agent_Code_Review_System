@@ -60,7 +60,7 @@ CodeNexus requires Python 3.11+.
 **Standard Installation:**
 ```bash
 # Clone the repository
-git clone https://github.com/lyeswanthp/Multi_Agent_Code_Review_System.git
+git clone https://github.com/lyeswanthp/CodeNexus.git
 cd CodeNexus
 
 # Install minimal dependencies
