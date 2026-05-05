@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="CodeNexus Banner" width="100%">
+</p>
+
 # CodeNexus
 
 > **Next-Gen Code Review: Where Static Analysis Meets Graph-Aware AI Agents.**
