@@ -95,7 +95,7 @@ def extract_json(text: str) -> list | dict:
             except json.JSONDecodeError:
                 continue
 
-    raise json.JSONDecodeError("No valid JSON found", text, 0)
+    raise json.JSONDecodeError(f"No valid JSON found. Model replied with: {text[:100]!r}", text, 0)
 
 
 def truncate_content(content: str, max_chars: int = _USER_MSG_CHAR_BUDGET) -> str:
@@ -174,7 +174,7 @@ async def call_agent(
 
     bus.emit("llm.request",
         id=call_id, agent=agent_name, model=provider.model,
-        prompt_chars=prompt_chars, base_url=provider.base_url,
+        promptChars=prompt_chars, base_url=provider.base_url,
         prompt="\n\n".join(m.get("content", "") for m in messages),
     )
 
@@ -216,6 +216,7 @@ async def call_agent(
         bus.emit("llm.response",
             id=call_id, agent=agent_name,
             response_chars=len(content),
+            prompt_chars=prompt_chars,
             response=content,
             prompt="\n\n".join(m.get("content", "") for m in messages),
         )

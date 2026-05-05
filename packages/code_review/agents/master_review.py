@@ -228,7 +228,7 @@ async def run_master_agent(state: ReviewState) -> dict:
         except Exception as e:
             logger.error("Master agent failed for %s: %s", filepath, e)
             bus.emit("agent.file.done", agent="master", file=filepath,
-                     findings=0, error=str(e)[:100])
+                     findings=0, error=str(e)[:250])
 
     if fallback_used:
         logger.info("Master had failures, running individual agents for complete coverage")

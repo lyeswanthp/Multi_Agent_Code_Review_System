@@ -5,10 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 
 from code_review.models import AgentName, Finding, Severity
 
 logger = logging.getLogger(__name__)
+
+# Module-level flag to only warn once
+_eslint_warning_logged = False
 
 SEVERITY_MAP = {
     2: Severity.HIGH,     # error
@@ -26,7 +30,10 @@ async def run_eslint(path: str) -> list[Finding]:
         )
         stdout, stderr = await proc.communicate()
     except FileNotFoundError:
-        logger.warning("eslint not found — skipping")
+        global _eslint_warning_logged
+        if not _eslint_warning_logged:
+            logger.warning("eslint not found — skipping")
+            _eslint_warning_logged = True
         return []
 
     if not stdout:

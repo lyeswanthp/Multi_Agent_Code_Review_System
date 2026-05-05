@@ -16,7 +16,7 @@ from code_review.events import Event, bus
 
 logger = logging.getLogger(__name__)
 
-_STATIC_DIR = Path(__file__).parent / "web_static"
+_STATIC_DIR = Path(__file__).parent / "dashboard_app" / "dist"
 
 
 class _DashboardHandler(BaseHTTPRequestHandler):
@@ -42,7 +42,27 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         elif self.path == "/api/config":
             self._serve_config()
         else:
-            self.send_error(404)
+            self._serve_static_file()
+
+    def _serve_static_file(self):
+        import mimetypes
+        filepath = _STATIC_DIR / self.path.lstrip("/")
+        if not filepath.exists() or filepath.is_dir():
+            # Fallback for client-side routing
+            self._serve_file("index.html", "text/html")
+            return
+        
+        content = filepath.read_bytes()
+        content_type, _ = mimetypes.guess_type(str(filepath))
+        self.send_response(200)
+        if content_type:
+            if content_type.startswith("text/") or content_type == "application/javascript":
+                self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+            else:
+                self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
 
     def _serve_file(self, filename: str, content_type: str):
         filepath = _STATIC_DIR / filename

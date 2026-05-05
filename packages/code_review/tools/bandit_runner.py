@@ -36,9 +36,12 @@ async def run_bandit(path: str) -> list[Finding]:
         return []
 
     try:
-        data = json.loads(stdout.decode())
+        raw_out = stdout.decode("utf-8", errors="replace")
+        if "{" in raw_out:
+            raw_out = "{" + raw_out.split("{", 1)[1]
+        data = json.loads(raw_out)
     except json.JSONDecodeError:
-        logger.warning("Failed to parse bandit JSON output")
+        logger.warning("Failed to parse bandit JSON output. Raw output: %s", stdout.decode("utf-8", errors="replace")[:200])
         return []
 
     findings = []
