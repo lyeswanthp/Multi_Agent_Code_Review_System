@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(code-review --help)",
-      "Bash(\"c:/Users/harsi/AppData/Local/Programs/Python/Python312/python\" -c \"from cli.main import app; print\\('CLI loads OK'\\)\")"
-    ]
-  }
-}
