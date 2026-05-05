@@ -8,7 +8,7 @@
 
 ## Overview
 
-Traditional linters lack context, and standard LLMs struggle with large codebases. **CodeNexus** solves this by fusing deterministic static analysis with specialized AI agents powered by LangGraph. Instead of feeding raw file dumps to an LLM, CodeNexus builds a comprehensive Abstract Syntax Tree (AST) driven knowledge graph of your project. This provides our agents with precise, topology-aware context—resulting in faster, cheaper, and highly accurate code reviews.
+Traditional linters lack context, and standard LLMs struggle with large codebases. **CodeNexus** solves this by fusing deterministic static analysis with specialized AI agents powered by LangGraph. Instead of feeding raw file dumps to an LLM, CodeNexus builds a comprehensive Abstract Syntax Tree (AST) driven knowledge graph of your project. This provides our agents with precise, topology-aware context resulting in faster, cheaper, and highly accurate code reviews.
 
 ## Key Highlights
 
@@ -60,7 +60,7 @@ CodeNexus requires Python 3.11+.
 **Standard Installation:**
 ```bash
 # Clone the repository
-git clone https://github.com/yourorg/CodeNexus.git
+git clone https://github.com/lyeswanthp/Multi_Agent_Code_Review_System.git
 cd CodeNexus
 
 # Install minimal dependencies
