@@ -133,7 +133,7 @@ code-review review --path . --format github --gh-owner ORG --gh-repo REPO --gh-p
 
 ## Contributing
 
-We welcome contributions! Please review the [PLAN.md](PLAN.md) for current architectural decisions and upcoming roadmap items.
+We welcome contributions!
 
 To run the test suite:
 ```bash
