@@ -2,6 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Activity, Cpu, AlertTriangle, PlayCircle, CheckCircle2, Server, GitMerge } from 'lucide-react';
 
+// Clean soft-white light palette
+const T = {
+  pageBg: '#f6f7f9',          // soft near-white with a hint of cool
+  cardBg: 'linear-gradient(145deg, #ffffff 0%, #fafbfc 100%)',
+  cardBorder: 'rgba(15, 23, 42, 0.08)',
+  headerBarBg: 'rgba(255, 255, 255, 0.85)',
+  innerPanel: '#ffffff',
+  innerBorder: 'rgba(15, 23, 42, 0.06)',
+  text: '#1f2937',             // slate-800
+  textMuted: '#64748b',        // slate-500
+  textFaint: '#94a3b8',        // slate-400
+  accent: '#0891b2',           // cyan-600
+  accentSoft: 'rgba(8, 145, 178, 0.10)',
+  success: '#16a34a',          // green-600
+  warn: '#d97706',             // amber-600
+  danger: '#dc2626',           // red-600
+  cardTitle: '#475569',        // slate-600
+};
+
 function formatDuration(startTs: number, endTs: number | null) {
   const s = ((endTs || Date.now()) - startTs) / 1000;
   if (s < 60) return s.toFixed(1) + 's';
@@ -16,9 +35,10 @@ function Card({ title, icon: Icon, children, className = '', style = {} }: any) 
       whileHover={{ y: -4 }}
       transition={{ duration: 0.4 }}
       style={{
-        background: 'linear-gradient(145deg, rgba(30, 30, 30, 0.7) 0%, rgba(15, 15, 15, 0.9) 100%)',
-        border: '1px solid rgba(255, 255, 255, 0.06)',
+        background: T.cardBg,
+        border: `1px solid ${T.cardBorder}`,
         borderRadius: '20px',
+        boxShadow: '0 6px 18px rgba(15, 23, 42, 0.04)',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
@@ -26,9 +46,9 @@ function Card({ title, icon: Icon, children, className = '', style = {} }: any) 
       }}
       className={className}
     >
-      <div style={{ padding: '18px 24px', borderBottom: '1px solid rgba(255, 255, 255, 0.04)', background: 'rgba(0, 0, 0, 0.3)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {Icon && <Icon size={18} style={{ color: '#06b6d4' }} />}
-        <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>{title}</h3>
+      <div style={{ padding: '18px 24px', borderBottom: `1px solid ${T.innerBorder}`, background: '#fafbfc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {Icon && <Icon size={18} style={{ color: T.accent }} />}
+        <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: T.cardTitle }}>{title}</h3>
       </div>
       <div style={{ padding: '16px 20px', flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '400px' }}>
         {children}
@@ -211,24 +231,11 @@ function AppContent() {
       });
     });
 
-    // Fetch history
-    fetch('/api/history')
-      .then(res => res.json())
-      .then(events => {
-        console.log('[App] Got history:', events.length, 'events');
-        events.forEach((e: any) => {
-          // Backend sends: {kind: "event.type", data: {...}, ts: 123}
-          // Extract kind and nested data, then re-dispatch
-          const kind = e.kind || e.Kind; // Handle both cases
-          const eventData = e.data || {};
-          if (kind) {
-            es.dispatchEvent(new MessageEvent(kind, { data: JSON.stringify(eventData) }));
-          }
-        });
-      })
-      .catch(err => {
-        console.error('[App] History fetch failed:', err);
-      });
+    // NOTE: history is already replayed by the SSE server on connect
+    // (see web_dashboard.py — it writes bus.history before subscribing).
+    // Don't refetch /api/history; that double-dispatches every event with a
+    // broken envelope (eventData ends up empty), which manifests as a phantom
+    // "undefined" agent, blank diff rows, and ghost pending LLM calls.
 
     return () => {
       if (es) es.close();
@@ -247,42 +254,42 @@ function AppContent() {
   const findingsList = findings ? [...findings].reverse() : [];
 
   return (
-    <div style={{ minHeight: '100vh', paddingBottom: '40px', backgroundColor: '#050505' }}>
+    <div style={{ minHeight: '100vh', paddingBottom: '40px', backgroundColor: T.pageBg, color: T.text }}>
       {/* Header */}
       <header style={{
         position: 'sticky', top: 0, zIndex: 50, padding: '16px 32px',
-        background: 'rgba(17, 17, 17, 0.7)', backdropFilter: 'blur(16px)',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        background: T.headerBarBg, backdropFilter: 'blur(16px)',
+        borderBottom: `1px solid ${T.cardBorder}`,
         display: 'flex', justifyContent: 'space-between', alignItems: 'center'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 600, color: '#f8fafc' }}>
+          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 600, color: T.text }}>
             CodeNexus Dashboard
           </h1>
           <span style={{
             fontSize: '10px', padding: '2px 8px', borderRadius: '12px',
-            background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6',
-            border: '1px solid rgba(59, 130, 246, 0.3)', textTransform: 'uppercase', letterSpacing: '1px'
+            background: T.accentSoft, color: T.accent,
+            border: `1px solid ${T.accent}`, textTransform: 'uppercase', letterSpacing: '1px'
           }}>
             Live
           </span>
         </div>
         <div style={{
           display: 'flex', alignItems: 'center', gap: '12px',
-          padding: '6px 14px', background: 'rgba(0,0,0,0.3)',
-          borderRadius: '20px', border: '1px solid rgba(255,255,255,0.08)'
+          padding: '6px 14px', background: '#ffffff',
+          borderRadius: '20px', border: `1px solid ${T.cardBorder}`
         }}>
           <div style={{
             width: '8px', height: '8px', borderRadius: '50%',
-            background: connected ? '#10b981' : '#ef4444',
-            boxShadow: `0 0 10px ${connected ? '#10b981' : '#ef4444'}`
+            background: connected ? T.success : T.danger,
+            boxShadow: `0 0 10px ${connected ? T.success : T.danger}`
           }} />
-          <span style={{ fontSize: '13px', color: '#94a3b8', fontWeight: 500 }}>
+          <span style={{ fontSize: '13px', color: T.textMuted, fontWeight: 500 }}>
             {connected ? 'Connected' : 'Disconnected'}
           </span>
           <span style={{
-            borderLeft: '1px solid rgba(255,255,255,0.1)',
-            paddingLeft: '12px', fontFamily: 'monospace', color: '#f8fafc', fontSize: '14px'
+            borderLeft: `1px solid ${T.cardBorder}`,
+            paddingLeft: '12px', fontFamily: 'monospace', color: T.text, fontSize: '14px'
           }}>
             {Math.floor(elapsed / 60000).toString().padStart(2, '0')}:
             {Math.floor((elapsed % 60000) / 1000).toString().padStart(2, '0')}
@@ -295,8 +302,9 @@ function AppContent() {
         {/* Debug info */}
         <div style={{
           padding: '8px 16px', marginBottom: '24px',
-          background: 'rgba(0,0,0,0.5)', borderRadius: '8px',
-          fontFamily: 'monospace', fontSize: '12px', color: '#94a3b8'
+          background: '#ffffff', borderRadius: '8px',
+          border: `1px solid ${T.innerBorder}`,
+          fontFamily: 'monospace', fontSize: '12px', color: T.textMuted
         }}>
           Debug: {Object.keys(phases || {}).length} phases, {Object.keys(agents || {}).length} agents, {(findings || []).length} findings
         </div>
@@ -311,21 +319,21 @@ function AppContent() {
                 return (
                   <div key={phaseName} style={{
                     display: 'flex', alignItems: 'center', gap: '16px',
-                    padding: '12px 16px', background: 'rgba(0,0,0,0.2)',
-                    borderRadius: '12px'
+                    padding: '12px 16px', background: T.innerPanel,
+                    border: `1px solid ${T.innerBorder}`, borderRadius: '12px'
                   }}>
                     <div style={{ width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {status === 'running' ? <PlayCircle size={16} color="#3b82f6" /> :
-                       status === 'done' ? <CheckCircle2 size={16} color="#10b981" /> :
-                       <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)' }} />}
+                      {status === 'running' ? <PlayCircle size={16} color={T.accent} /> :
+                       status === 'done' ? <CheckCircle2 size={16} color={T.success} /> :
+                       <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: T.cardBorder }} />}
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '14px', fontWeight: 500, textTransform: 'capitalize', color: '#f8fafc' }}>
+                      <div style={{ fontSize: '14px', fontWeight: 500, textTransform: 'capitalize', color: T.text }}>
                         {phaseName.replace('_', ' ')}
                       </div>
-                      <div style={{ fontSize: '12px', color: '#94a3b8' }}>{p?.detail || 'Waiting...'}</div>
+                      <div style={{ fontSize: '12px', color: T.textMuted }}>{p?.detail || 'Waiting...'}</div>
                     </div>
-                    <div style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace' }}>
+                    <div style={{ fontSize: '12px', color: T.textMuted, fontFamily: 'monospace' }}>
                       {p?.startTime ? formatDuration(p.startTime, p.endTime) : ''}
                     </div>
                   </div>
@@ -337,27 +345,28 @@ function AppContent() {
               {Object.entries(agents || {}).map(([name, agent]: [string, any]) => (
                 <div key={name} style={{
                   display: 'flex', alignItems: 'center', gap: '16px',
-                  padding: '12px 16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px'
+                  padding: '12px 16px', background: T.innerPanel,
+                  border: `1px solid ${T.innerBorder}`, borderRadius: '12px'
                 }}>
-                  <div style={{ flex: 1, fontWeight: 500, fontSize: '14px', textTransform: 'capitalize', color: '#f8fafc' }}>
+                  <div style={{ flex: 1, fontWeight: 500, fontSize: '14px', textTransform: 'capitalize', color: T.text }}>
                     {name.replace('_', ' ')}
                   </div>
-                  <div style={{ fontSize: '12px', fontFamily: 'monospace', color: '#94a3b8' }}>
+                  <div style={{ fontSize: '12px', fontFamily: 'monospace', color: T.textMuted }}>
                     {(agent?.filesReviewed || 0)} / {(agent?.filesTotal || 0)} files
                   </div>
                   <div style={{
                     fontSize: '11px', padding: '4px 10px', borderRadius: '12px', fontWeight: 600, textTransform: 'uppercase',
-                    background: agent?.status === 'running' ? 'rgba(59, 130, 246, 0.15)' :
-                                agent?.status === 'done' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.05)',
-                    color: agent?.status === 'running' ? '#3b82f6' :
-                          agent?.status === 'done' ? '#10b981' : '#94a3b8'
+                    background: agent?.status === 'running' ? T.accentSoft :
+                                agent?.status === 'done' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(15, 23, 42, 0.04)',
+                    color: agent?.status === 'running' ? T.accent :
+                          agent?.status === 'done' ? T.success : T.textFaint
                   }}>
                     {agent?.status || 'pending'}
                   </div>
                 </div>
               ))}
               {Object.keys(agents || {}).length === 0 && (
-                <div style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '20px' }}>
+                <div style={{ color: T.textMuted, fontSize: '13px', textAlign: 'center', padding: '20px' }}>
                   Waiting for agents to initialize...
                 </div>
               )}
@@ -368,17 +377,18 @@ function AppContent() {
                 (diffFiles || []).map((f: any, i: number) => (
                   <div key={i} style={{
                     display: 'flex', justifyContent: 'space-between',
-                    padding: '10px 16px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', fontSize: '13px'
+                    padding: '10px 16px', background: T.innerPanel,
+                    border: `1px solid ${T.innerBorder}`, borderRadius: '8px', fontSize: '13px'
                   }}>
-                    <span style={{ fontFamily: 'monospace', color: '#06b6d4' }}>{f.path}</span>
+                    <span style={{ fontFamily: 'monospace', color: T.accent }}>{f.path}</span>
                     <span style={{ display: 'flex', gap: '8px' }}>
-                      <span style={{ color: '#10b981' }}>+{f.newLines}</span>
-                      <span style={{ color: '#ef4444' }}>-{f.oldLines}</span>
+                      <span style={{ color: T.success }}>+{f.new_lines ?? f.newLines ?? 0}</span>
+                      <span style={{ color: T.danger }}>-{f.old_lines ?? f.oldLines ?? 0}</span>
                     </span>
                   </div>
                 ))
               ) : (
-                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                <div style={{ padding: '20px', textAlign: 'center', color: T.textMuted, fontSize: '13px' }}>
                   Waiting for diffs...
                 </div>
               )}
@@ -390,13 +400,13 @@ function AppContent() {
             <Card title="Review Findings" icon={AlertTriangle} style={{ flex: 1 }}>
               <AnimatePresence>
                 {findingsList.length === 0 ? (
-                  <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                  <div style={{ padding: '40px', textAlign: 'center', color: T.textMuted, fontSize: '13px' }}>
                     No issues found yet...
                   </div>
                 ) : (
                   findingsList.map((f: any, i: number) => {
-                    const severityColor = f?.severity === 'high' ? '#ef4444' :
-                                         f?.severity === 'low' ? '#94a3b8' : '#f59e0b';
+                    const severityColor = f?.severity === 'high' ? T.danger :
+                                         f?.severity === 'low' ? T.textFaint : T.warn;
                     return (
                       <motion.div
                         key={i}
@@ -404,28 +414,29 @@ function AppContent() {
                         animate={{ opacity: 1, scale: 1 }}
                         layout
                         style={{
-                          padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px',
+                          padding: '16px', background: T.innerPanel,
+                          border: `1px solid ${T.innerBorder}`, borderRadius: '12px',
                           borderLeft: `4px solid ${severityColor}`, marginBottom: '12px'
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                          <div style={{ fontFamily: 'monospace', color: '#06b6d4', fontSize: '12px' }}>
+                          <div style={{ fontFamily: 'monospace', color: T.accent, fontSize: '12px' }}>
                             {f?.file?.split('/').pop()}:{f?.line}
                           </div>
                           <div style={{
                             fontSize: '10px', textTransform: 'uppercase', padding: '2px 8px',
-                            borderRadius: '10px', background: 'rgba(255,255,255,0.05)', color: '#94a3b8', letterSpacing: '0.5px'
+                            borderRadius: '10px', background: 'rgba(15, 23, 42, 0.04)', color: T.textMuted, letterSpacing: '0.5px'
                           }}>
                             {f?.category}
                           </div>
                         </div>
-                        <div style={{ fontSize: '13px', marginBottom: '10px', lineHeight: '1.5', color: '#f8fafc' }}>
+                        <div style={{ fontSize: '13px', marginBottom: '10px', lineHeight: '1.5', color: T.text }}>
                           {f?.message}
                         </div>
                         {f?.suggestion && (
                           <div style={{
-                            fontSize: '12px', color: '#f8fafc', background: 'rgba(255,255,255,0.05)',
-                            padding: '10px', borderRadius: '8px', borderLeft: '2px solid rgba(255,255,255,0.2)'
+                            fontSize: '12px', color: T.text, background: '#f8fafc',
+                            padding: '10px', borderRadius: '8px', borderLeft: `2px solid ${T.cardBorder}`
                           }}>
                             {f.suggestion}
                           </div>
@@ -441,10 +452,12 @@ function AppContent() {
               {(llmCalls || []).slice(-50).reverse().map((call: any, i: number) => {
                 const id = call.id || String(i);
                 const isExpanded = !!expandedCalls[id];
-                const statusColor = call.status === 'failed' ? '#ef4444' : call.status === 'done' ? '#10b981' : '#94a3b8';
+                const statusColor = call.status === 'failed' ? T.danger : call.status === 'done' ? T.success : T.textFaint;
                 return (
                   <div key={id} style={{
-                    background: 'rgba(0,0,0,0.2)', borderRadius: '8px',
+                    background: T.innerPanel,
+                    border: `1px solid ${T.innerBorder}`,
+                    borderRadius: '8px',
                     fontSize: '12px', marginBottom: '8px', overflow: 'hidden'
                   }}>
                     <div
@@ -455,16 +468,16 @@ function AppContent() {
                         userSelect: 'none',
                         transition: 'background 0.15s',
                       }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)'; }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(15, 23, 42, 0.03)'; }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 500, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontWeight: 500, color: T.text, display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <span style={{
                             display: 'inline-block',
                             transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                             transition: 'transform 0.15s',
-                            color: '#64748b',
+                            color: T.textFaint,
                             fontSize: '10px',
                           }}>▶</span>
                           {call.agent || 'unknown'}
@@ -473,7 +486,7 @@ function AppContent() {
                           {call.status}
                         </span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '11px', paddingLeft: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: T.textMuted, fontSize: '11px', paddingLeft: '16px' }}>
                         <span>{call.model || 'unknown'}</span>
                         <span>{(call.promptChars || 0)} in → {(call.responseChars || 0)} out</span>
                       </div>
@@ -485,19 +498,20 @@ function AppContent() {
                           animate={{ height: 'auto', opacity: 1 }}
                           exit={{ height: 0, opacity: 0 }}
                           transition={{ duration: 0.2 }}
-                          style={{ overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.05)' }}
+                          style={{ overflow: 'hidden', borderTop: `1px solid ${T.innerBorder}` }}
                         >
                           <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                             <div>
                               <div style={{
                                 fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em',
-                                color: '#06b6d4', fontWeight: 600, marginBottom: '4px'
+                                color: T.accent, fontWeight: 600, marginBottom: '4px'
                               }}>
                                 Prompt
                               </div>
                               <pre style={{
-                                margin: 0, padding: '10px', background: 'rgba(0,0,0,0.4)',
-                                borderRadius: '6px', fontSize: '11px', color: '#cbd5e1',
+                                margin: 0, padding: '10px', background: '#f8fafc',
+                                border: `1px solid ${T.innerBorder}`,
+                                borderRadius: '6px', fontSize: '11px', color: T.text,
                                 fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                                 maxHeight: '240px', overflow: 'auto',
                               }}>
@@ -507,14 +521,15 @@ function AppContent() {
                             <div>
                               <div style={{
                                 fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em',
-                                color: call.status === 'failed' ? '#ef4444' : '#10b981',
+                                color: call.status === 'failed' ? T.danger : T.success,
                                 fontWeight: 600, marginBottom: '4px'
                               }}>
                                 {call.status === 'failed' ? 'Error' : 'Response'}
                               </div>
                               <pre style={{
-                                margin: 0, padding: '10px', background: 'rgba(0,0,0,0.4)',
-                                borderRadius: '6px', fontSize: '11px', color: '#cbd5e1',
+                                margin: 0, padding: '10px', background: '#f8fafc',
+                                border: `1px solid ${T.innerBorder}`,
+                                borderRadius: '6px', fontSize: '11px', color: T.text,
                                 fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                                 maxHeight: '240px', overflow: 'auto',
                               }}>
@@ -531,7 +546,7 @@ function AppContent() {
                 );
               })}
               {(llmCalls || []).length === 0 && (
-                <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '13px', padding: '20px' }}>
+                <div style={{ textAlign: 'center', color: T.textMuted, fontSize: '13px', padding: '20px' }}>
                   Waiting for network activity...
                 </div>
               )}

@@ -21,12 +21,20 @@ _clients: dict[str, AsyncOpenAI] = {}
 
 # Read context window size from config (set LMSTUDIO_CONTEXT_SIZE in .env).
 # Default 4096 for safety with small local models; cloud APIs can handle 32K+.
-# Budget = context_chars * 0.55 for user msg, * 0.25 for system prompt,
-# leaving ~20% for completion tokens.
+# Budget allocation: leave headroom for completion + chat-template overhead,
+# and use a conservative chars-per-token ratio because Qwen-family tokenizers
+# pack code denser than the 4-chars/token rule of thumb.
+#
+# Tunables — keep these conservative; we'd rather truncate than have LM Studio
+# reject the request entirely.
+_CHARS_PER_TOKEN = 2.5     # code is denser than prose for BPE tokenizers
+_USER_BUDGET_RATIO = 0.40  # leaves room for system prompt + output + overhead
+_SYS_BUDGET_RATIO = 0.18
+
 def _get_budgets() -> tuple[int, int]:
     ctx_tokens = settings.lmstudio_context_size if settings.llm_mode == "local" else 32_000
-    ctx_chars = ctx_tokens * 3  # ~3 chars per token (conservative)
-    return int(ctx_chars * 0.55), int(ctx_chars * 0.25)  # user_budget, sys_budget
+    ctx_chars = int(ctx_tokens * _CHARS_PER_TOKEN)
+    return int(ctx_chars * _USER_BUDGET_RATIO), int(ctx_chars * _SYS_BUDGET_RATIO)
 
 
 _USER_MSG_CHAR_BUDGET, _SYS_PROMPT_CHAR_BUDGET = _get_budgets()
@@ -178,64 +186,113 @@ async def call_agent(
         prompt="\n\n".join(m.get("content", "") for m in messages),
     )
 
-    try:
-        is_local = "localhost" in provider.base_url or "127.0.0.1" in provider.base_url
+    is_local = "localhost" in provider.base_url or "127.0.0.1" in provider.base_url
 
-        # Disable thinking mode for Qwen models on local — they waste tokens
-        # on <think> tags and return empty answers within the token budget.
-        extra: dict = {}
-        if is_local and "qwen" in provider.model.lower():
-            extra["extra_body"] = {
-                "thinking": "off",
-            }
+    # Disable thinking mode for Qwen models on local — they waste tokens
+    # on <think> tags and return empty answers within the token budget.
+    extra: dict = {}
+    if is_local and "qwen" in provider.model.lower():
+        extra["extra_body"] = {"thinking": "off"}
 
-        # Temperature: balanced for code review — creativity for suggestions, consistency for patterns.
-        temp = 0.2 if is_local else temperature
+    # Temperature: balanced for code review — creativity for suggestions, consistency for patterns.
+    temp = 0.2 if is_local else temperature
 
-        create_kwargs: dict = dict(
-            model=provider.model,
-            messages=messages,
-            temperature=temp,
-            **extra,
-        )
-        # Use per-agent output cap (saves time on small models); honor caller's override.
-        cap = _MAX_TOKENS.get(agent_name)
-        if max_tokens is not None:
-            cap = min(max_tokens, cap) if cap else max_tokens
-        if cap:
-            create_kwargs["max_tokens"] = cap
+    cap = _MAX_TOKENS.get(agent_name)
+    if max_tokens is not None:
+        cap = min(max_tokens, cap) if cap else max_tokens
 
-        response = await client.chat.completions.create(**create_kwargs)
-        content = response.choices[0].message.content or ""
+    # Shrink-and-retry loop: if LM Studio rejects with a context-length error,
+    # halve the user content and retry up to 2 times. Better a truncated review
+    # than a 400 with no findings at all.
+    current_messages = messages
+    current_prompt_chars = prompt_chars
+    last_error: Exception | None = None
 
-        # Strip thinking tags that slip through even with enable_thinking=False.
-        # Qwen models sometimes emit them anyway when under token pressure.
-        if is_local:
-            content = _THINKING_RE.sub("", content).strip()
+    for attempt in range(3):
+        try:
+            create_kwargs: dict = dict(
+                model=provider.model,
+                messages=current_messages,
+                temperature=temp,
+                **extra,
+            )
+            if cap:
+                create_kwargs["max_tokens"] = cap
 
-        bus.emit("llm.response",
-            id=call_id, agent=agent_name,
-            responseChars=len(content),
-            promptChars=prompt_chars,
-            response=content,
-            prompt="\n\n".join(m.get("content", "") for m in messages),
-        )
-        return content
+            response = await client.chat.completions.create(**create_kwargs)
+            content = response.choices[0].message.content or ""
 
-    except Exception as e:
-        err_str = str(e).lower()
+            # Strip thinking tags that slip through even with enable_thinking=False.
+            if is_local:
+                content = _THINKING_RE.sub("", content).strip()
 
-        bus.emit("llm.error",
-            id=call_id, agent=agent_name,
-            error=str(e)[:200],
-        )
+            bus.emit("llm.response",
+                id=call_id, agent=agent_name,
+                responseChars=len(content),
+                promptChars=current_prompt_chars,
+                response=content,
+                prompt="\n\n".join(m.get("content", "") for m in current_messages),
+            )
+            return content
 
-        if "auth" in err_str or "401" in err_str or "invalid api key" in err_str:
-            logger.error("Auth failed for agent '%s' — check API key for %s", agent_name, provider.base_url)
-            raise
+        except Exception as e:
+            last_error = e
+            err_str = str(e).lower()
 
-        logger.warning(
-            "Agent '%s' failed (provider: %s, model: %s): %s — returning empty result",
-            agent_name, provider.base_url, provider.model, e,
-        )
-        return ""
+            if "auth" in err_str or "401" in err_str or "invalid api key" in err_str:
+                bus.emit("llm.error", id=call_id, agent=agent_name, error=str(e)[:200])
+                logger.error("Auth failed for agent '%s' — check API key for %s", agent_name, provider.base_url)
+                raise
+
+            # Local model context-length rejection — shrink user content and retry.
+            ctx_err = (
+                "context length" in err_str
+                or "tokens to keep" in err_str
+                or "context_length_exceeded" in err_str
+                or ("400" in err_str and "token" in err_str)
+            )
+            if ctx_err and attempt < 2:
+                current_messages = _halve_user_content(current_messages)
+                current_prompt_chars = sum(len(m.get("content", "")) for m in current_messages)
+                logger.warning(
+                    "Agent '%s' hit context limit; retrying with %d chars (attempt %d/2)",
+                    agent_name, current_prompt_chars, attempt + 2,
+                )
+                continue
+
+            # Non-recoverable or out of retries.
+            bus.emit("llm.error", id=call_id, agent=agent_name, error=str(e)[:200])
+            logger.warning(
+                "Agent '%s' failed (provider: %s, model: %s): %s — returning empty result",
+                agent_name, provider.base_url, provider.model, e,
+            )
+            return ""
+
+    # Should be unreachable, but if every retry hit ctx_err, fall through.
+    bus.emit("llm.error", id=call_id, agent=agent_name, error=str(last_error)[:200] if last_error else "context length")
+    return ""
+
+
+def _halve_user_content(messages: list[dict]) -> list[dict]:
+    """Return a copy of `messages` with the last user message truncated by half.
+
+    System messages are left intact (system prompt is already budgeted). We
+    keep the head of the user message because the file header + diff lives
+    there and is most informative for review.
+    """
+    out: list[dict] = []
+    cut_last = False
+    # Walk from the end so we only shrink the most recent user turn.
+    for i, m in enumerate(reversed(messages)):
+        if not cut_last and m.get("role") == "user":
+            content = m.get("content", "")
+            half = max(1, len(content) // 2)
+            cutoff = content[:half].rfind("\n")
+            cutoff = cutoff if cutoff > half // 2 else half
+            new_content = content[:cutoff] + f"\n... [truncated for context — {len(content) - cutoff} chars omitted]"
+            out.append({**m, "content": new_content})
+            cut_last = True
+        else:
+            out.append(m)
+    out.reverse()
+    return out
