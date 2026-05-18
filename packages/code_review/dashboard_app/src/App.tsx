@@ -83,6 +83,11 @@ function AppContent() {
   const [findings, setFindings] = useState<any[]>([]);
   const [diffFiles, setDiffFiles] = useState<any[]>([]);
   const [llmCalls, setLlmCalls] = useState<any[]>([]);
+  const [expandedCalls, setExpandedCalls] = useState<Record<string, boolean>>({});
+
+  const toggleExpand = (id: string) => {
+    setExpandedCalls(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   useEffect(() => {
     console.log('[App] Setting up SSE connection...');
@@ -252,7 +257,7 @@ function AppContent() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 600, color: '#f8fafc' }}>
-            InfraGuard AI Dashboard
+            CodeNexus Dashboard
           </h1>
           <span style={{
             fontSize: '10px', padding: '2px 8px', borderRadius: '12px',
@@ -433,26 +438,98 @@ function AppContent() {
             </Card>
 
             <Card title="LLM Network Trace" icon={Server}>
-              {(llmCalls || []).slice(-8).reverse().map((call: any, i: number) => (
-                <div key={call.id || i} style={{
-                  padding: '10px 14px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px',
-                  fontSize: '12px', marginBottom: '8px'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontWeight: 500, color: '#f8fafc' }}>{call.agent || 'unknown'}</span>
-                    <span style={{
-                      fontFamily: 'monospace',
-                      color: call.status === 'failed' ? '#ef4444' : call.status === 'done' ? '#10b981' : '#94a3b8'
-                    }}>
-                      {call.status}
-                    </span>
+              {(llmCalls || []).slice(-50).reverse().map((call: any, i: number) => {
+                const id = call.id || String(i);
+                const isExpanded = !!expandedCalls[id];
+                const statusColor = call.status === 'failed' ? '#ef4444' : call.status === 'done' ? '#10b981' : '#94a3b8';
+                return (
+                  <div key={id} style={{
+                    background: 'rgba(0,0,0,0.2)', borderRadius: '8px',
+                    fontSize: '12px', marginBottom: '8px', overflow: 'hidden'
+                  }}>
+                    <div
+                      onClick={() => toggleExpand(id)}
+                      style={{
+                        padding: '10px 14px',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)'; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 500, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.15s',
+                            color: '#64748b',
+                            fontSize: '10px',
+                          }}>▶</span>
+                          {call.agent || 'unknown'}
+                        </span>
+                        <span style={{ fontFamily: 'monospace', color: statusColor }}>
+                          {call.status}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '11px', paddingLeft: '16px' }}>
+                        <span>{call.model || 'unknown'}</span>
+                        <span>{(call.promptChars || 0)} in → {(call.responseChars || 0)} out</span>
+                      </div>
+                    </div>
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          style={{ overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.05)' }}
+                        >
+                          <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div>
+                              <div style={{
+                                fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em',
+                                color: '#06b6d4', fontWeight: 600, marginBottom: '4px'
+                              }}>
+                                Prompt
+                              </div>
+                              <pre style={{
+                                margin: 0, padding: '10px', background: 'rgba(0,0,0,0.4)',
+                                borderRadius: '6px', fontSize: '11px', color: '#cbd5e1',
+                                fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                maxHeight: '240px', overflow: 'auto',
+                              }}>
+                                {call.prompt || '(no prompt captured)'}
+                              </pre>
+                            </div>
+                            <div>
+                              <div style={{
+                                fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em',
+                                color: call.status === 'failed' ? '#ef4444' : '#10b981',
+                                fontWeight: 600, marginBottom: '4px'
+                              }}>
+                                {call.status === 'failed' ? 'Error' : 'Response'}
+                              </div>
+                              <pre style={{
+                                margin: 0, padding: '10px', background: 'rgba(0,0,0,0.4)',
+                                borderRadius: '6px', fontSize: '11px', color: '#cbd5e1',
+                                fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                maxHeight: '240px', overflow: 'auto',
+                              }}>
+                                {call.status === 'failed'
+                                  ? (call.error || '(no error message)')
+                                  : (call.response || (call.status === 'pending' ? '(awaiting response...)' : '(empty response)'))}
+                              </pre>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '11px' }}>
-                    <span>{call.model || 'unknown'}</span>
-                    <span>{(call.promptChars || 0)} in → {(call.responseChars || 0)} out</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {(llmCalls || []).length === 0 && (
                 <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '13px', padding: '20px' }}>
                   Waiting for network activity...

@@ -215,8 +215,8 @@ async def call_agent(
 
         bus.emit("llm.response",
             id=call_id, agent=agent_name,
-            response_chars=len(content),
-            prompt_chars=prompt_chars,
+            responseChars=len(content),
+            promptChars=prompt_chars,
             response=content,
             prompt="\n\n".join(m.get("content", "") for m in messages),
         )
